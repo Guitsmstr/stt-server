@@ -6,16 +6,16 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 0 — Fundación** |
-| **Última actualización** | 2026-10-22 (Sesión 001) |
-| **Siguiente paso** | Aprobación del PLAN por el usuario → cerrar Stage 0 → `apk add cmake pkgconf onnxruntime-dev jq` e iniciar Stage 1 |
+| **Stage actual** | **Stage 1 — ✅ CERRADO** (listo para Stage 2) |
+| **Última actualización** | 2026-10-22 (Sesión 002) |
+| **Siguiente paso** | **Stage 2**: implementar `adapters/moonshine/stt-adapter-moonshine` (C++ vs ONNX Runtime) + `scripts/fetch-model.sh`; checks S2.1–S2.5 |
 
 ## Estado de stages
 
 | Stage | Nombre | Estado |
 |---|---|---|
-| 0 | Fundación (docs + estructura) | 🟡 en curso (esperando aprobación) |
-| 1 | Contratos + harness Go + adaptador eco | ⬜ no iniciado |
+| 0 | Fundación (docs + estructura) | ✅ cerrado (aprobado por el usuario, S0.5) |
+| 1 | Contratos + harness Go + adaptador eco | ✅ cerrado |
 | 2 | Adaptador C++ Moonshine (primer motor) | ⬜ no iniciado |
 | 3 | Streaming continuo | ⬜ no iniciado |
 | 4 | Entrada de audio real (Android/Termux) | ⬜ no iniciado |
@@ -44,24 +44,24 @@ Específicos:
 - [x] **S0.2** Documentación completa: README, PLAN, REGLAS, ARQUITECTURA, CONTRATOS, PREREQUISITOS, PROGRESO
 - [x] **S0.3** `.gitignore` (excluye `var/`) 
 - [x] **S0.4** Repo git inicializado + commit inicial
-- [ ] **S0.5** **PLAN aprobado por el usuario** (criterio de salida del stage)
+- [x] **S0.5** PLAN aprobado por el usuario — aprobado el 2026-10-22 (Sesión 002)
 
 ### Stage 1 — Contratos + harness Go + adaptador eco
 
 Generales:
-- [ ] **G1** `go build ./...` + build de adaptadores sin errores ni warnings nuevos
-- [ ] **G2** Checks específicos con evidencia en bitácora
-- [ ] **G3** Docs sincronizadas (CONTRATOS §5 con sesión real)
-- [ ] **G4** PROGRESO actualizado
-- [ ] **G5** Sin regresiones (Stage 0: docs siguen coherentes con el código)
-- [ ] **G6** Limpieza
+- [x] **G1** `go build ./...` + `go vet` + adaptador C++ `-Wall -Wextra`: sin errores ni warnings
+- [x] **G2** Checks específicos con evidencia → bitácora Sesión 002
+- [x] **G3** Docs sincronizadas (CONTRATOS §5 con sesión real + aclaraciones compatibles; ARQUITECTURA §3/§7)
+- [x] **G4** PROGRESO actualizado (bitácora Sesión 002)
+- [x] **G5** Sin regresiones (tests completos: `go test ./...` 4/4 + smoke)
+- [x] **G6** Limpieza (artefactos solo en `var/` y binarios gitignored)
 
 Específicos:
-- [ ] **S1.1** Módulo Go compila en este dispositivo (arm64/musl)
-- [ ] **S1.2** `stt stream` + `stt-adapter-echo` produce eventos `stt-events/1` válidos (verificado con `jq`)
-- [ ] **S1.3** Framing `stt-adapter/1`: payload ≥ 1 MB transferido sin corrupción (checksum)
-- [ ] **S1.4** Muerte del adaptador → reinicio según política (ARQUITECTURA §3), reportado en stdout
-- [ ] **S1.5** Ejemplo de sesión real registrado en `docs/CONTRATOS.md` §5
+- [x] **S1.1** Módulo Go compila en este dispositivo (arm64/musl) — `make core` OK
+- [x] **S1.2** `stt stream` + `stt-adapter-echo` → NDJSON válido verificado con `jq` (4 frames → 4 finals + eof); incluido `stt once` con WAV
+- [x] **S1.3** Framing sin corrupción: `TestProtocolIntegrity` — 1 048 599 bytes (257 frames), checksum FNV-1a verificado byte a byte entre Go y C++
+- [x] **S1.4** Muerte del adaptador → reinicio reportado (`adapter_crash` no fatal) y pipeline completa (`TestAdapterRestart` + smoke)
+- [x] **S1.5** Ejemplo de sesión real registrado en `docs/CONTRATOS.md` §5
 
 ### Stage 2 — Adaptador C++ Moonshine
 
@@ -122,6 +122,40 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 002 — 2026-10-22
+**Alcance**: cierre del Stage 0 (aprobación del plan) y ejecución completa del Stage 1.
+
+**Hechos (evidencia)**:
+- **S0.5**: plan y alcance aprobados por el usuario. Stage 0 cerrado.
+- Toolchain completa instalada: `cmake pkgconf onnxruntime-dev jq` (PREREQUISITOS actualizado).
+- **Stage 1 implementado**: núcleo Go (`core/`: `cmd/stt` con `stream`/`once`/`version`, `internal/protocol` (stt-adapter/1), `internal/runner` (supervisión + política de reinicio), `internal/segment`, `internal/wav`, `internal/emit` (stt-events/1)) + adaptador `adapters/echo/stt-adapter-echo` (C++17, sin dependencias) + `Makefile` raíz + `tests/run-stage1-tests.sh` + `config/stt.toml` (pendiente de cablear en Stage 3).
+- **Verificación**: `go test ./...` → 4/4 PASS (`TestFrameFraming`, `TestProtocolIntegrity`, `TestRunnerEndToEnd`, `TestAdapterRestart`); smoke `tests/run-stage1-tests.sh` → ALL OK (S1.2, S1.2b, S1.4 con salida NDJSON real registrada en CONTRATOS §5).
+- **Bugs encontrados y corregidos durante la verificación** (evidencia de que los checks funcionan):
+  1. `hash/fnv.New64()` de Go es FNV-**1**, el C++ implementaba FNV-**1a** → corregido a `New64a()` (S1.3 ahora valida integridad real).
+  2. Política de reinicio demasiado laxa: EOF de adaptador sin `bye` se daba por bueno al final de la entrada → ahora solo `bye` completa (coherente con CONTRATOS §2.4; registrado en ARQUITECTURA §3).
+  3. `wav.go`: seek incorrecto con chunks `fmt` de tamaño ≠ 16 → offset absoluto por chunk.
+- Aclaraciones compatibles de contrato (R5): frames de longitud arbitraria (último corto), consumidores deben ignorar campos desconocidos, `stt once` v1 = WAV PCM s16le 16k mono.
+
+**Observación O1 (para Stage 3)**: los frames escritos pero no procesados al
+morir el adaptador se pierden (política v1). En un crash con frames grandes se
+perdieron ~6 de 10 frames. Si S3.1 exige robustez frente a crashes, valorar
+reenvío de frames no reconocidos (el protocolo ya tiene índice de frame).
+
+**Archivos tocados**: `core/**` (7 archivos + 2 tests), `adapters/echo/**` (2),
+`Makefile`, `tests/run-stage1-tests.sh`, `config/stt.toml`, `docs/CONTRATOS.md`,
+`docs/ARQUITECTURA.md`, `docs/PREREQUISITOS.md`, `PROGRESO.md`.
+
+**Checks**: Stage 1 — G1..G6 ✅, S1.1–S1.5 ✅. Stage 0 — S0.5 ✅ (cerrado).
+
+**Decisiones nuevas**: ninguna (D1–D6 ya registradas; ajuste de política de
+reinicio = aplicación del contrato, no decisión nueva).
+
+**Siguiente paso**: **Stage 2** — `adapters/moonshine/` (C++ vs ONNX Runtime C
+API, ya con headers instalados), `scripts/fetch-model.sh` para
+`var/models/moonshine-tiny/` (encoder_model.onnx + decoder_model_merged.onnx
+desde HF `UsefulSensors/moonshine`), y checks S2.1–S2.5 (objetivo RTF ≤ 0.35,
+RSS < 300 MB). Baseline Python para batir: RTF 0.19 (5.3× tiempo real).
 
 ### Sesión 001 — 2026-10-22
 **Alcance**: exploración del hardware, validación de viabilidad STT, decisiones de diseño y fundación documental del proyecto.

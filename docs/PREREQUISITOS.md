@@ -11,12 +11,12 @@ musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
 | `go` 1.26.9 | núcleo | ✅ instalado | `apk add go` (si hiciera falta) |
 | `gcc`/`g++` 15.2 | adaptadores C++ | ✅ instalado | `apk add build-base` |
 | `make` | builds | ✅ instalado | — |
-| `cmake` | builds C++ (whisper.cpp, etc.) | ❌ **pendiente** | `apk add cmake` |
-| `pkgconf` | localizar libs | ❌ **pendiente** | `apk add pkgconf` |
+| `cmake` | builds C++ (whisper.cpp, etc.) | ✅ instalado | `apk add cmake` |
+| `pkgconf` | localizar libs | ✅ instalado | `apk add pkgconf` |
 | `libonnxruntime.so` 1.24.4 | runtime de inferencia | ✅ instalado | `apk add onnxruntime` |
-| headers de onnxruntime | compilar adaptadores | ❌ **pendiente** | `apk add onnxruntime-dev` |
+| headers de onnxruntime | compilar adaptadores | ✅ instalado | `apk add onnxruntime-dev` |
 | `git` 2.54 | versionado | ✅ instalado | — |
-| `jq` | verificar NDJSON en pruebas | ❌ **pendiente** | `apk add jq` |
+| `jq` | verificar NDJSON en pruebas | ✅ instalado | `apk add jq` |
 | `sox` | generar/convertir audio de prueba | ✅ instalado | — |
 | `espeak` | TTS para generar audio de prueba | ✅ instalado | voz robótica; para demos reales usar voz humana |
 
@@ -24,6 +24,8 @@ musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
 ```sh
 apk add cmake pkgconf onnxruntime-dev jq
 ```
+✅ Ejecutado el 2026-10-22 (Sesión 002): toolchain completa y verificada
+(`g++` compila el adaptador eco con `-Wall -Wextra` sin warnings; `go vet` limpio).
 
 No se necesita: Python (validación previa únicamente), Rust, Node, GPU/NPU.
 

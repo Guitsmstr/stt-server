@@ -45,6 +45,10 @@ Versión del documento: 1 (2026-10-22). Los contratos detallados están en
   (`stt once archivo.wav` — herramienta de desarrollo).
 - **Adaptadores de modelo**: 1 subproceso por defecto, supervisado. El núcleo
   lo relanza si muere (política: máx. 3 reinicios en 60 s, luego error fatal).
+  Criterio de finalización correcta: recibir `bye` (CONTRATOS §2.4). EOF del
+  adaptador sin `bye` se trata como crash **incluso al final de la entrada**:
+  se reinicia y la sesión vacía cierra sola con `bye`. (Ajuste registrado,
+  2026-10-22, Sesión 002 — coherente con el contrato.)
 - **Adaptadores de entrada**: procesos externos que alimentan al núcleo por
   stdin (pipe) o por hotfolder (Stage 4). El núcleo no los supervisa.
 
@@ -78,7 +82,7 @@ Claves previstas (v1):
 
 | Fallo | Comportamiento |
 |---|---|
-| Adaptador de modelo muere | relanzar según política §3; frames en vuelo se pierden (aceptable en v1) |
+| Adaptador de modelo muere | relanzar según política §3; frames escritos pero no procesados se pierden (aceptable en v1; ver observación O1 en PROGRESO) |
 | Adaptador no emite `ready` en 30 s | error fatal con mensaje claro |
 | Audio con formato no soportado | rechazo inmediato con `error` por stdout + exit ≠ 0 |
 | stdout consumidor se va (EPIPE) | el núcleo termina ordenadamente |

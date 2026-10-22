@@ -49,7 +49,8 @@ Después, **frames binarios** con prefijo de longitud:
 └──────────────┴──────────────────────────────┘
 ```
 
-Ejemplo: frame de 2 s a 16 kHz mono s16le ⇒ N = 64000 bytes.
+Ejemplo: frame de 2 s a 16 kHz mono s16le ⇒ N = 64000 bytes. El último frame
+del stream puede ser más corto (frames de longitud arbitraria permitidos).
 
 ### 2.3 Eventos (adaptador → núcleo, stdout, NDJSON)
 
@@ -96,6 +97,8 @@ Reglas:
   `partial`).
 - `text` es UTF-8, sin `\n` embebidos (se sustituyen por espacio).
 - El orden es temporal; no hay eventos tras `eof`.
+- **Los consumidores deben ignorar campos desconocidos** (los adaptadores o
+  versiones futuras pueden añadir campos extra).
 - Consumidores: usar `jq`, `stdbuf`, o cualquier parser NDJSON.
 
 ## 4. Contrato de entrada (adaptadores de entrada)
@@ -106,26 +109,49 @@ Un adaptador de entrada es cualquier proceso que produzca **PCM raw
 ```sh
 termux-capture | stt stream          # pipe (Stage 4)
 sox input.mp3 -t raw -r 16000 -e signed -b 16 -c 1 - | stt stream
-stt once archivo.wav                 # conveniencia: convierte internamente
+stt once archivo.wav                 # conveniencia: WAV PCM s16le 16k mono
 ```
+
+Aclaración v1 (2026-10-22, compatible): `stt once` acepta **únicamente** WAV
+PCM s16le 16 kHz mono; otros formatos se convierten antes con sox (el error lo
+indica). La normalización general es responsabilidad del adaptador de entrada.
 
 **Hotfolder** (definición preliminar, para Stage 4): directorio vigilado donde
 el adaptador de entrada deposita `NNNNNN.pcm` (numerados) y un marcador
 `NNNNNN.done`. El núcleo consume en orden. Detalle final al ejecutar Stage 4.
 
-## 5. Ejemplo de sesión completa
+## 5. Ejemplo de sesión completa (real — Stage 1, 2026-10-22)
+
+Salida verificada de `tests/run-stage1-tests.sh` con el adaptador eco
+(`stt-adapter-echo`, texto sintético a la espera del Stage 2):
 
 ```sh
-$ echo '{"protocol":"stt-adapter/1","audio":{"rate":16000,"channels":1,"format":"s16le"},"frame_ms":2000}' \
-  | cat - <(sox speech.wav -t raw -r 16000 -e signed -b 16 -c 1 -) \
-  | ./stt stream --adapter adapters/echo/stt-adapter-echo
+$ head -c 64000 /dev/zero > pcm.raw        # 2 s de audio
+$ ./var/bin/stt stream --adapter adapters/echo/stt-adapter-echo --frame-ms 500 < pcm.raw
 {"type":"start","audio":{"rate":16000,"channels":1,"format":"s16le"}}
-{"type":"final","text":"hello world","t0":0.0,"t1":2.0,"model":"echo","rtf":0.0}
-{"type":"eof","frames":1,"audio_s":2.0}
+{"type":"final","model":"echo","text":"echo frame 0","t1":0.5}
+{"type":"final","model":"echo","text":"echo frame 1","frame":1,"t0":0.5,"t1":1}
+{"type":"final","model":"echo","text":"echo frame 2","frame":2,"t0":1,"t1":1.5}
+{"type":"final","model":"echo","text":"echo frame 3","frame":3,"t0":1.5,"t1":2}
+{"type":"eof","frames":4,"audio_s":2}
 ```
 
-*(Nota: la cabecera en 2.1/2.2 la intercambian núcleo y adaptador por pipes
-internos; el usuario nunca la escribe a mano.)*
+Con un adaptador roto (reinicio visible):
+
+```sh
+$ STT_ECHO_CRASH_AFTER=2 ./var/bin/stt stream --adapter adapters/echo/stt-adapter-echo \
+    --max-restarts 5 --frame-ms 500 < pcm2.raw
+{"type":"start",...}
+{"type":"final","model":"echo","text":"echo frame 0","t1":0.5}
+{"type":"final","model":"echo","text":"echo frame 1","frame":1,"t0":0.5,"t1":1}
+{"type":"error","code":"adapter_crash","message":"adapter exited unexpectedly; restarting"}
+...
+{"type":"eof","frames":9,"audio_s":5}
+```
+
+Nota v1: los frames escritos pero no procesados al morir el adaptador se
+pierden (política ARQUITECTURA §3); por eso `frames` (enviados) puede ser
+mayor que el número de eventos `final`.
 
 ---
 
