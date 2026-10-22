@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 4 — 🟨 S4.3 pendiente; Stage 5 definido (ver PROGRESO.md) |
+| **Estado actual** | Stage 4 — ✅ cerrado; Stage 5 — 🟦 definido (ver PROGRESO.md) |
 | **Última actualización** | 2026-10-22 (Sesión 007) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
@@ -115,7 +115,8 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   + `tests/run-stage4-tests.sh` y `docs/OPERACION.md`.
 - **Criterio de salida**: demo real de voz humana → texto en ≤ 3 s, registrado
   en la bitácora. (S4.1/S4.2/S4.4 verificados en la Sesión 006 con micrófono y
-  TTS acústico; S4.3 espera la grabación de voz humana.)
+  TTS acústico; S4.3 cerrado en la Sesión 007 con voz humana: 3 finales,
+  latencia máx 1.269 s.)
 
 ### Stage 5 — Expansión (definido y aprobado por el usuario en la Sesión 007)
 - **Objetivo**: ampliar el componente en dos direcciones sin romper contratos:

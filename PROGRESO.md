@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 4 — 🟨 implementación y verificación (S4.3 demo de voz humana pendiente)** |
+| **Stage actual** | **Stage 5 — 🟦 definido (Sesión 007); ejecución desde S5.3** |
 | **Última actualización** | 2026-10-22 (Sesión 007) |
-| **Siguiente paso** | **S4.3**: grabar voz humana real con `./scripts/stt-mic.sh` (o `tests/live_probe.py` sin `--speak-cmd`), registrar transcripción + latencia y cerrar Stage 4; después, Stage 5 (definido en la Sesión 007) desde **S5.3** |
+| **Siguiente paso** | **S5.3** — `stt-adapter-whisper`: compilar contra `whisper.cpp-libs` del sistema y verificar handshake `stt-adapter/1` (definición en PLAN §Stage 5) |
 
 ## Estado de stages
 
@@ -18,7 +18,7 @@
 | 1 | Contratos + harness Go + adaptador eco | ✅ cerrado |
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
-| 4 | Entrada de audio real (Android/Termux) | 🟨 implementación completa; S4.3 demo humana pendiente |
+| 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
 | 5 | Expansión (whisper.cpp + salida remota) | 🟦 definido (Sesión 007); se ejecuta tras cerrar Stage 4 |
 
 ---
@@ -114,7 +114,7 @@ Generales:
 Específicos:
 - [x] **S4.1** Captura desde el micrófono del teléfono hacia el chroot (método documentado) — 8.5 s de PCM real (272 000 bytes; RMS 97.2, peak 409 en la suite final; otras corridas 90–780 RMS), `stt` cierra con `eof`; método en `docs/OPERACION.md`
 - [x] **S4.2** Texto en stdout en **≤ 3 s** desde el fin de la frase — TTS acústico por el altavoz: **`arrival − t1 = 1.307 s`** en la suite final y 1.438 s en una corrida limpia; objetivo ≤ 3 s; `var/tmp/stage4/live_s42.json` y `live_s42_clean.json`
-- [ ] **S4.3** Demo real de **voz humana** registrada en bitácora (con transcripción) — pendiente: el test S4.2 usa TTS (voz sintética) como fuente reproducible; falta la grabación de voz humana
+- [x] **S4.3** Demo real de **voz humana** registrada en bitácora (con transcripción) — Sesión 007: `tests/live_probe.py` sin `--speak-cmd`, ventana de 60 s: **3 finales de voz humana, latencia máx 1.269 s** (≤ 3 s), transcripción `"I will try it with my buffet No matter try again, figure the game Feel better."` ≈ frase dicha ("Ever tried. Ever failed. No matter. Try again. Fail again. Fail better."); informe `var/tmp/stage4/live_s43_human_final.json`. Corroborado con 2ª captura (89.5 s): `"They were tried. Ever-failing. No matter try again, fail again. Three bits."` en t=21.0–27.8 s (`live_s43_human_events.ndjson`)
 - [x] **S4.4** Micrófono bloqueado/ocupado → error claro, sin bloquear el núcleo — sin servidor rc=1 con mensaje; fallo OpenSL inyectado rc=1 con guía; `stt-mic.sh` rc=1 y el núcleo emite `eof` (sin hang); sin servidores PA residuales
 
 ### Stage 5 — Expansión (whisper.cpp + salida remota)
@@ -150,14 +150,17 @@ Generales G1–G6: al ejecutar
 - Selección de motor sin cambios de núcleo: ya existe `--adapter CMD` / `[adapter] cmd` (verificado en `core/cmd/stt/main.go` y `config/stt.toml`).
 - Definición completa en `docs/PLAN.md` §Stage 5; checks **S5.1–S5.8** en este documento; decisiones **D12** (segundo motor) y **D13** (transporte de salida; extiende D3 de forma compatible) en `docs/ARQUITECTURA.md` §8.
 - Orden de ejecución: primero cerrar Stage 4 (**S4.3** demo de voz humana), luego Stage 5 desde **S5.3**.
+- **Cierre de Stage 4 (S4.3, en esta misma sesión)**: demo de voz humana con `tests/live_probe.py` sin `--speak-cmd`. Tres ventanas: (1) 90 s sin el usuario presente → 1 final de habla ambiental ("I know I can use it", latencia 1.233 s; `live_s43_human_missed.json`); (2) 90 s con la voz del usuario → capturada y transcripta tras **salvado** del PCM (el probe murió antes de escribir el informe: `timeout 120` era justo para `--duration 90` con arranque lento de PA; lección de harness: **timeout ≥ 2.5× la duración**) → `"They were tried. Ever-failing. No matter try again, fail again. Three bits."` en t=21.0–27.8 s (`live_s43_human_events.ndjson`); (3) 60 s limpia (`timeout 300`) → **informe completo**: 3 finales, latencia máx **1.269 s**, `"I will try it with my buffet No matter try again, figure the game Feel better."` (`live_s43_human_final.json`). Frase dicha: *"Ever tried. Ever failed. No matter. Try again. Fail again. Fail better."* La tiny de Moonshine (inglés) degrada más con acento humano que con TTS, pero la frase es reconocible — es justo lo que S4.3 quería demostrar.
+- Incidencia menor: `pkill -f stt_mic_4715` se auto-mató otra vez (patrón sin el truco `[x]`, mismo pielec de la Sesión 006). Sin daños; relanzado limpio.
+- **Stage 4 queda CERRADO** (S4.1–S4.4 ✅). Sin cambios de código del núcleo en toda la sesión.
 
 **Archivos tocados**: `docs/PLAN.md`, `docs/ARQUITECTURA.md`, `README.md`, `PROGRESO.md`.
 
-**Checks**: S5.1 ✅, S5.2 ✅ (definición); S5.3–S5.8 al ejecutar.
+**Checks**: Stage 4 — S4.3 ✅ (evidencia arriba); S5.1 ✅, S5.2 ✅ (definición); S5.3–S5.8 al ejecutar.
 
 **Decisiones nuevas**: D12, D13.
 
-**Siguiente paso**: **S4.3** — demo de voz humana (pasos exactos en la bitácora de la Sesión 006); tras el cierre de Stage 4, iniciar Stage 5 por **S5.3**.
+**Siguiente paso**: **Stage 5** — empezar por **S5.3**: `stt-adapter-whisper` contra `whisper.cpp-libs` del sistema + handshake `stt-adapter/1`.
 
 ### Sesión 006 — 2026-10-22
 **Alcance**: Stage 4 — micrófono real Android/Termux → `stt stream`, con método documentado, scripts, tests y verificación S4.1–S4.4.
