@@ -1,6 +1,6 @@
 # stt configuration (defaults).
-# NOTE (Stage 1): the CLI currently uses flags; wiring this file is planned
-# for Stage 3 (registered in PROGRESO.md). Keys mirror docs/ARQUITECTURA.md §5.
+# Stage 3: this file is loaded by the CLI (cwd-relative; missing = built-in
+# defaults). Flags override file values. Keys mirror docs/ARQUITECTURA.md §5.
 
 [audio]
 rate = 16000
@@ -8,9 +8,12 @@ channels = 1
 format = "s16le"
 
 [segment]
-frame_ms = 2000
-vad_rms_threshold = 0.01   # Stage 3
-min_speech_ms = 300        # Stage 3
+frame_ms = 2000            # target segment cadence
+vad = true                 # energy-aware cuts + silence skip (false = fixed frames)
+vad_rms_threshold = 0.01   # speech RMS threshold, samples in [-1,1]
+hop_ms = 30                # VAD analysis hop
+min_speech_ms = 0          # segments need this much speech to be sent; 0 = any above-threshold audio counts
+max_stretch_ms = 300       # max stretch past frame_ms to reach a dip (latency bound)
 
 [adapter]
 cmd = "adapters/moonshine/stt-adapter-moonshine"

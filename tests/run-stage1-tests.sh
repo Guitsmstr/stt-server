@@ -11,7 +11,9 @@ mkdir -p "$TMP"
 
 echo "== S1.2: stt stream + echo adapter, NDJSON validated with jq =="
 head -c 64000 /dev/zero > "$TMP/pcm.raw"   # 2 s of audio (32 KB/s)
-out=$("$STT" stream --adapter "$ADAPTER" --frame-ms 500 < "$TMP/pcm.raw")
+# --vad=false: this check pins the Stage 1 fixed framing (one final per frame);
+# since Stage 3 the default segments by VAD and drops silent frames.
+out=$("$STT" stream --adapter "$ADAPTER" --frame-ms 500 --vad=false < "$TMP/pcm.raw")
 echo "$out"
 echo "$out" | jq -e -c 'select(.type=="start")' >/dev/null
 echo "$out" | jq -e -c 'select(.type=="final")' >/dev/null
@@ -29,7 +31,7 @@ echo "OK S1.2b: wav one-shot"
 
 echo "== S1.4: adapter crash -> restart =="
 head -c 160000 /dev/zero > "$TMP/pcm2.raw"   # 5 s = 10 frames de 500 ms
-out=$(STT_ECHO_CRASH_AFTER=2 "$STT" stream --adapter "$ADAPTER" --max-restarts 5 --frame-ms 500 < "$TMP/pcm2.raw")
+out=$(STT_ECHO_CRASH_AFTER=2 "$STT" stream --adapter "$ADAPTER" --max-restarts 5 --frame-ms 500 --vad=false < "$TMP/pcm2.raw")
 echo "$out"
 echo "$out" | jq -e -c 'select(.type=="error" and .code=="adapter_crash" and (.fatal|not))' >/dev/null
 echo "$out" | jq -e -c 'select(.type=="eof")' >/dev/null

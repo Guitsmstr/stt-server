@@ -6,8 +6,11 @@
 //   - emits one "final" event per frame with canned text
 //   - on stdin EOF emits "bye" with byte count and FNV-1a checksum
 //
-// Test hook: env STT_ECHO_CRASH_AFTER=N exits abruptly after N frames,
-// used to verify the nucleus restart policy.
+// Test hooks:
+//   - env STT_ECHO_CRASH_AFTER=N exits abruptly after N frames,
+//     used to verify the nucleus restart policy.
+//   - env STT_ECHO_PARTIALS=1 announces the "partial" capability and emits
+//     one partial event before each final, used to verify [output] partials.
 //
 // Build: make -C adapters/echo
 
@@ -40,6 +43,10 @@ int main(int argc, char **argv) {
     if (const char *e = getenv("STT_ECHO_CRASH_AFTER")) {
         crash_after = atoi(e);
     }
+    int partials = 0;
+    if (const char *e = getenv("STT_ECHO_PARTIALS")) {
+        partials = atoi(e);
+    }
 
     // Header line (JSON) — consumed but unused by the echo adapter.
     char line[4096];
@@ -50,8 +57,8 @@ int main(int argc, char **argv) {
 
     printf("{\"type\":\"ready\",\"protocol\":\"stt-adapter/1\",\"name\":\"echo\","
            "\"model\":\"%s\",\"audio\":{\"rate\":16000,\"channels\":1,\"format\":\"s16le\"},"
-           "\"capabilities\":[\"final\"]}\n",
-           model.c_str());
+           "\"capabilities\":[%s]}\n",
+           model.c_str(), partials ? "\"final\",\"partial\"" : "\"final\"");
     fflush(stdout);
 
     uint64_t h = 14695981039346656037ULL; // FNV-1a offset basis
@@ -73,6 +80,10 @@ int main(int argc, char **argv) {
 
         double t1 = (double)total / 32000.0; // 16 kHz mono s16le
         double t0 = t1 - (double)n / 32000.0;
+        if (partials) {
+            printf("{\"type\":\"partial\",\"text\":\"echo partial %d\",\"frame\":%d}\n",
+                   frame, frame);
+        }
         printf("{\"type\":\"final\",\"text\":\"echo frame %d\",\"frame\":%d,"
                "\"t0\":%.3f,\"t1\":%.3f,\"rtf\":0.0}\n",
                frame, frame, t0, t1);

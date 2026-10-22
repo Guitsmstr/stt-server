@@ -47,6 +47,7 @@ type Event struct {
 	Audio        *AudioFormat `json:"audio,omitempty"`
 	Frames       int          `json:"frames,omitempty"`
 	AudioS       float64      `json:"audio_s,omitempty"`
+	SkippedS     float64      `json:"skipped_s,omitempty"` // eof: audio skipped by VAD silence policy
 	RSSKB        int64        `json:"rss_kb,omitempty"`
 }
 

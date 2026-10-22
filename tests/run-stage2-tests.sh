@@ -35,8 +35,12 @@ echo "$out"
 echo "$out" | jq -e -c 'select(.type=="start")' >/dev/null
 echo "$out" | jq -e -c 'select(.type=="final")' >/dev/null
 echo "$out" | jq -e -c 'select(.type=="eof")' >/dev/null
-echo "$out" | jq -e -c 'select(.type=="final") | .text | test("ever tried.*fail better"; "i")' >/dev/null \
-    || fail "transcription not coherent: $(echo "$out" | jq -r 'select(.type=="final") | .text')"
+# Stage 3 note: with VAD segmentation the transcript may span several finals;
+# join them before matching (same intent: coherent end-to-end transcription).
+echo "$out" | jq -e -c 'select(.type=="final") | .text' >/dev/null
+transcript=$(echo "$out" | jq -r 'select(.type=="final") | .text' | tr '\n' ' ')
+echo "$transcript" | grep -Eiq 'ever tried.*fail +better' \
+    || fail "transcription not coherent: $transcript"
 echo "OK S2.2: $(echo "$out" | jq -r 'select(.type=="final") | .text')"
 
 echo "== S2.3: RTF <= 0.35 (10 s frame and 2 s frames) =="

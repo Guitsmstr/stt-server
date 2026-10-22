@@ -41,6 +41,13 @@ constexpr int kEosToken = 2;   // </s>
 constexpr int kDefaultMaxTokens = 192;
 constexpr double kMinAudioS = 0.1;
 constexpr double kChunkAudioS = 60.0; // Moonshine supports up to 64 s per call
+// Moonshine-tiny occasionally emits EOS (empty text) for speech-bearing audio
+// of unlucky durations (verified against the Python reference). Retry empty
+// results on edge-trimmed audio: a different duration changes the encoder
+// behavior. Deterministically silent audio still stays empty. Trims are
+// capped at a quarter of the frame so at least half the audio is kept.
+constexpr size_t kRetryTrimS = 3;
+constexpr size_t kRetryTrimSamples = kRetryTrimS * 160; // 100 ms per step
 
 struct Options {
     std::string model_dir = "var/models/moonshine-tiny";
@@ -578,6 +585,14 @@ int main(int argc, char **argv) {
                     std::string part =
                         transcribe(model, tok, pcm + off, len, o.max_tokens, &part_s);
                     infer_s += part_s;
+                    for (size_t trim = kRetryTrimSamples;
+                         part.empty() && trim <= kRetryTrimS * kRetryTrimSamples;
+                         trim += kRetryTrimSamples) {
+                        const size_t cap = std::min(trim, len / 4);
+                        part = transcribe(model, tok, pcm + off + cap, len - 2 * cap,
+                                          o.max_tokens, &part_s);
+                        infer_s += part_s;
+                    }
                     if (!part.empty()) {
                         if (!text.empty()) text.push_back(' ');
                         text += part;

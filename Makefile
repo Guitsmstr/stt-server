@@ -1,4 +1,4 @@
-.PHONY: all core adapters models test test-stage2 clean
+.PHONY: all core adapters models test test-stage2 test-stage3 clean
 
 all: core adapters
 
@@ -18,6 +18,9 @@ test: all
 
 test-stage2: all
 	sh tests/run-stage2-tests.sh
+
+test-stage3: all
+	sh tests/run-stage3-tests.sh
 
 clean:
 	rm -f var/bin/stt

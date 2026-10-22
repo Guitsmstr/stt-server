@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 2 — ✅ CERRADO** (listo para Stage 3) |
-| **Última actualización** | 2026-10-22 (Sesión 003) |
-| **Siguiente paso** | **Stage 3**: segmentación/VAD en el núcleo (cortes por silencio, `partial`/`final`), checks S3.1–S3.5 |
+| **Stage actual** | **Stage 3 — 🔄 EN PROGRESO** (implementación avanzada, verificación parcial) |
+| **Última actualización** | 2026-10-22 (Sesión 004, sesión cortada a mitad de stage) |
+| **Siguiente paso** | **Stage 3, paso exacto**: 1) experimento de duración de segmento (matriz minSeg/cap ya definida, ver bitácora Sesión 004 §Paso 1); 2) fijar diseño + métricas S3.1/S3.2; 3) corrida completa de `tests/run-stage3-tests.sh`; 4) sync de docs (G3) y cierre |
 
 ## Estado de stages
 
@@ -17,7 +17,7 @@
 | 0 | Fundación (docs + estructura) | ✅ cerrado (aprobado por el usuario, S0.5) |
 | 1 | Contratos + harness Go + adaptador eco | ✅ cerrado |
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
-| 3 | Streaming continuo | ⬜ no iniciado |
+| 3 | Streaming continuo | 🔄 en progreso (Sesión 004, no cerrado) |
 | 4 | Entrada de audio real (Android/Termux) | ⬜ no iniciado |
 | 5 | Expansión (opcional) | ⬜ no iniciado |
 
@@ -97,6 +97,10 @@ Específicos:
 - [ ] **S3.4** 30 min de stream: RSS estable (sin fugas) y sin frames perdidos
 - [ ] **S3.5** Eventos `partial` implementados según config — o justificación registrada
 
+> **Nota (Sesión 004, en progreso):** implementación avanzada; ver bitácora
+> Sesión 004 para estado, hallazgos y el paso exacto de reanudación. Los
+> checks se marcarán solo con la evidencia formal del cierre.
+
 ### Stage 4 — Entrada de audio real (Android/Termux)
 
 Generales:
@@ -122,6 +126,50 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 004 — 2026-10-22 (EN PROGRESO — sesión cortada; NO cerrar Stage 3 sin leer esto)
+**Alcance**: implementación del Stage 3 (streaming continuo): VAD/endpointing en el núcleo, cableado de `config/stt.toml`, eventos `partial` según config, harness de medición (latencia/RSS) y script de checks. La verificación S3.1–S3.5 está **parcial** y el diseño de segmentación está a un experimento de decidirse.
+
+**Implementado (todo con tests unitarios en verde y stage1+2 en verde):**
+- `core/internal/config` (nuevo): parser de subconjunto TOML (sin dependencias) + `Default()`; `stt` carga `config/stt.toml` (cwd) o `--config FILE`; flags pisan config. Claves nuevas `[segment]`: `vad`, `vad_rms_threshold`, `hop_ms`, `min_speech_ms`, `max_stretch_ms` (`cut_search_ms` eliminado del diseño). Tests: `config_test.go`.
+- `core/internal/segment` (reescrito 3 iteraciones — ver decisiones): endpointing clásico. Corte en pausas reales (run de silencio ≥ 3 hops = 90 ms; dips más cortos son closure intra-palabra) una vez el segmento tiene `minSegmentS` (hoy constante = 1 s, **pendiente de experimento para subir a 2-3 s**); la pausa se emite como segmento `Speech=false` (skip, contado en `skipped_s`); el siguiente segmento arranca en el onset **con preroll de 200 ms** (no recorta consonantes suaves y ningún segmento enviado empieza con silencio — moonshine devuelve texto vacío si el segmento abre con silencio). Speech fluido sin pausas: force-cut en el dip más profundo entre `FrameMs` y `FrameMs+MaxStretchMs`. Sin VAD (`--vad=false`): framing fijo de Stage 1. `segment_test.go` nuevo (tiling, skip de silencio, corte en dip, stretch, onset-protection, framing fijo).
+- `core/cmd/stt/main.go`: carga de config + merge de flags (`--config`, `--vad`, `--vad-threshold`, `--partials`, además de los existentes); glue que descarta segmentos sin habla y contabiliza `skipped_s`; **el núcleo es autoridad de t0/t1** (re-sella `final`/`partial` con su propia línea de tiempo — tras un skip, el contador de bytes del adaptador queda comprimido y sus t0/t1 serían falsos); `partial` solo se emite si `[output] partials = true`; `eof` lleva `skipped_s`. Versión 0.2.0.
+- `core/internal/protocol`: campo `skipped_s` (eof, opcional, compatible).
+- `adapters/echo`: hook `STT_ECHO_PARTIALS=1` (anuncia capability `partial` y emite un `partial` por frame) para probar S3.5.
+- `adapters/moonshine`: **retry anti-vacío** — el modelo devuelve texto vacío (EOS inmediato) para audio con habla en duraciones desafortunadas (verificado contra la referencia Python `moonshine_onnx`: mismo span 4.41 s → `[1,2]`; recortes de 100/200 ms sí transcriben). El adaptador reintenta hasta 2 veces recortando bordes (100/200 ms, tope ¼ del frame). Devuelve los vacíos genuinos como `""`.
+- `tests/feed_stream.py` (nuevo): feeder PCM con pacing + timestamps por evento en stdout + muestreo RSS de núcleo/adaptador + métricas de latencia (por final y por frontera de 2 s) → informe JSON.
+- `tests/run-stage3-tests.sh` (nuevo): checks S3.1–S3.5 (stream 5 min en tiempo real, latencia, silencio sostenido, 30 min a 6× con RSS, partials con echo/moonshine). Genera assets en `var/tmp/stage3`.
+- `tests/run-stage1-tests.sh`: `--vad=false` en S1.2/S1.4 (verifican framing fijo de Stage 1; el default ahora segmenta con VAD). `tests/run-stage2-tests.sh`: S2.2 une los textos de todos los `final` antes del grep (la transcripción ahora puede abarcar varios finales); sin cambiar la intención.
+
+**Bugs encontrados y corregidos durante la sesión (evidencia de que los checks funcionan):**
+1. Harness Python colgado: `Popen(text=True)` + escritura de bytes → TypeError en el thread principal; threads no-daemon bloqueaban para siempre. Corregido: pipes binarios + daemon threads + `wait(timeout)`.
+2. t0/t1 comprimidos tras skips de VAD (el adaptador cuenta solo bytes recibidos): se observó "Ever tried." fechado en [9.15,10.8] cuando el audio real era [15.63,17.28]. Corregido: el núcleo re-sella t0/t1 (aclaración de contrato compatible, pendiente de documentar en CONTRATOS §3).
+3. Pérdida de onsets: segmentos con < `min_speech_ms` de habla se descartaban llevándose la primera palabra de cada repetición ("Ever" perdido ×30). Corregido: default `min_speech_ms = 0` (cualquier audio sobre umbral se envía) + protección de cierre con habla en los últimos ~100 ms.
+4. Puerta de pausa en bytes = `frameBytes/2`: con `--frame-ms 10000` eran **5 s** → segmentos de 4.4 s sin cortar → zona de texto vacío del modelo. Corregido: tope de 1 s independiente de FrameMs.
+5. Micro-pausas intra-palabra (≤90 ms) cortaban palabras → runs mínimos de 3 hops.
+6. Regresiones detectadas por los checks de stages anteriores (funcionan): S1.2/S1.4 requerían `--vad=false`; S2.2 requería unir finales.
+7. `emit()` volvía a aplicar la puerta de habla a los frames de framing fijo (silencio con `--vad=false` se descartaba; S1.2 en rojo). Corregido: la puerta solo aplica con VAD activo.
+8. Pánico (`index -1`) en `loudNow()` con entrada vacía (`stt stream < /dev/null`): se consulta el último hop sin haber hops. Corregido con guarda de slice vacío; el check extra de S2.2 (estéreo rechazado) volvió a verde.
+
+**Hallazgos de calidad (evidencia, `var/tmp/stage3/`):**
+- Cobertura por-ventana-de-repetición (script de métrica, fuzzy Levenshtein): one-shot 9.96 s = 100 %; slicing v1 2 s = 66 %; endpointer con minSeg 1 s = 62 %. Conclusión parcial: **más contexto por segmento = mejor texto**; el modelo en tajos de ~1-2 s degrada colas de frase ("fail again fail better" → "fairly" / "yeah").
+- La latencia por segmento (arrival − t1) en RT: máx 0.71 s ✓ ≤ 0.8 s; el promedio bajó a ~0.13 s con el diseño actual.
+- RSS del núcleo estable (~7 MB) en la RT de 5 min; `skipped_s` contabiliza solo silencio.
+
+**Pendiente (orden exacto para la próxima sesión):**
+1. **Experimento de duración** (decide el diseño final): con `minSegmentS` ∈ {2,3} (sed sobre la constante + `go build`) y `--frame-ms {5000,10000}`, correr `var/tmp/stage3/stream5min.pcm` a 4× y medir cobertura por-repetición (mover `/tmp/cov.py` a `tests/coverage.py`). Elegir config default (`min_segment_ms` nuevo en `[segment]` + cap `frame_ms`), presumiblemente minSeg 3 s + cap 5-10 s. Criterio: cobertura media ≥ 80-90 % y latencia por segmento ≤ ~1.5 s.
+2. **Enmendar checks** (R3, registrar en bitácora): S3.2 se mide como arrival − t1(segmento) ≤ 800 ms (la métrica por frontera de 2 s carga el batching contra la latencia; con segmentos largos además la inferencia sola puede pasar de 0.8 s — documentar el trade-off y su coherencia con S4.2 "≤ 3 s desde el fin de la frase"). S3.1: cobertura media por-repetición con umbral a fijar según el experimento (y VAD ≥ baseline no-VAD como comparativa O2).
+3. Actualizar `tests/run-stage3-tests.sh` con la métrica de cobertura por ventana + umbrales; correr suite completa: `make test`, stage2, stage3 (RT 5 min + 30 min a 6×), y registrar evidencia en PROGRESO (S3.1–S3.5).
+4. **Sync de docs (G3)**: ARQUITECTURA §4 (diseño final del endpointer), §5 (claves de config), §8 (D9 queda sustituido/ampliado + decisión nueva: retry anti-vacío del adaptador); CONTRATOS §2.2/§3 (`skipped_s`, `partial`, autoridad de t0/t1 del núcleo, retry); README (flags nuevos); `config/stt.toml` ya actualizado (revisar contra el diseño final).
+5. Cierre: bitácora final, checkboxes S3.x con evidencia, commit.
+
+**Archivos tocados**: `core/internal/{config/(config.go,config_test.go),segment/(segment.go,segment_test.go),protocol/protocol.go}`, `core/cmd/stt/main.go`, `adapters/{echo/echo.cc,moonshine/moonshine.cc}`, `tests/{feed_stream.py,run-stage1-tests.sh,run-stage2-tests.sh,run-stage3-tests.sh}`, `config/stt.toml`, `Makefile`.
+
+**Checks**: Stage 3 — G1 parcial (build limpio ✓, tests unitarios ✓, stage1+2 en verde ✓), G2 parcial (evidencia arriba; faltan S3.1–S3.5 formales), G3/G4/G5/G6 pendientes del cierre.
+
+**Decisiones provisionales (a confirmar con el experimento y registrar en §8)**: endpointing con preroll + skip-regions + retry anti-vacío; autoridad de t0/t1 en el núcleo; `min_speech_ms = 0`; tope de 1 s para la puerta de pausa.
+
+**Siguiente paso**: el **Paso 1** del pendiente (experimento de duración de segmento).
 
 ### Sesión 003 — 2026-10-22
 **Alcance**: ejecución completa del Stage 2 — adaptador Moonshine real (C++ + ONNX Runtime) y caché de modelos.
