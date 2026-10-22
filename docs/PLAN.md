@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 3 — ✅ cerrado (ver PROGRESO.md) |
-| **Última actualización** | 2026-10-22 (Sesión 005) |
+| **Estado actual** | Stage 4 — 🟨 S4.3 pendiente; Stage 5 definido (ver PROGRESO.md) |
+| **Última actualización** | 2026-10-22 (Sesión 007) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
 ---
@@ -117,9 +117,29 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   en la bitácora. (S4.1/S4.2/S4.4 verificados en la Sesión 006 con micrófono y
   TTS acústico; S4.3 espera la grabación de voz humana.)
 
-### Stage 5 — Expansión (opcional, alcance por definir al llegar)
-- Candidatos: adaptador `whisper.cpp` (multi-idioma), servicio/autostart,
-  segundo consumidor de salida, sesiones múltiples.
+### Stage 5 — Expansión (definido y aprobado por el usuario en la Sesión 007)
+- **Objetivo**: ampliar el componente en dos direcciones sin romper contratos:
+  **(a) multilingüe** — segundo motor real `stt-adapter-whisper` en C++ contra
+  `whisper.cpp-libs` (paquete del sistema Alpine), modelo `whisper-tiny`
+  cacheado en `var/models/`; **(b) salida remota** — `stt stream --out
+  tcp://host:puerto | unix://ruta` transporta los mismos eventos
+  `stt-events/1` con fan-out a N consumidores; stdout sigue siendo el modo
+  base (D13 extiende D3 de forma compatible). Moonshine continúa como motor
+  por defecto; la selección de motor usa el `--adapter`/`[adapter] cmd` ya
+  existente (sin cambios de núcleo para el motor).
+- **Entregables**: `adapters/whisper/` (C++ + Makefile), `scripts/fetch-model.sh`
+  extendido a `var/models/whisper-tiny/` (idempotente), `--out` + fan-out en
+  `core/`, `tests/run-stage5-tests.sh`, script de servicio opcional, docs
+  (CONTRATOS transporte, ARQUITECTURA D12/D13, OPERACION, README, config).
+- **Objetivos whisper**: RTF ≤ 0.5 y RSS pico < 350 MB (más laxos que
+  Moonshine 0.35/300 MB: el encoder multi-idioma de whisper tiny es más
+  pesado en este hardware).
+- **Fuera de alcance de este stage**: sesiones múltiples concurrentes
+  (posible Stage 6), empaquetado/distribución.
+- **Criterio de salida**: el mismo audio transcrito en español e inglés por
+  whisper con moonshine y las regresiones de stages 1–4 en verde; 2 clientes
+  simultáneos reciben los mismos eventos por socket con sobrecoste de
+  latencia ≤ 10 ms y sin que una desconexión afecte al pipeline.
 
 ## 6. Riesgos
 

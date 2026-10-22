@@ -7,8 +7,8 @@
 | | |
 |---|---|
 | **Stage actual** | **Stage 4 — 🟨 implementación y verificación (S4.3 demo de voz humana pendiente)** |
-| **Última actualización** | 2026-10-22 (Sesión 006) |
-| **Siguiente paso** | **S4.3**: grabar voz humana real con `./scripts/stt-mic.sh` (o `tests/live_probe.py` sin `--speak-cmd`), registrar transcripción + latencia y cerrar Stage 4 |
+| **Última actualización** | 2026-10-22 (Sesión 007) |
+| **Siguiente paso** | **S4.3**: grabar voz humana real con `./scripts/stt-mic.sh` (o `tests/live_probe.py` sin `--speak-cmd`), registrar transcripción + latencia y cerrar Stage 4; después, Stage 5 (definido en la Sesión 007) desde **S5.3** |
 
 ## Estado de stages
 
@@ -19,7 +19,7 @@
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | 🟨 implementación completa; S4.3 demo humana pendiente |
-| 5 | Expansión (opcional) | ⬜ no iniciado |
+| 5 | Expansión (whisper.cpp + salida remota) | 🟦 definido (Sesión 007); se ejecuta tras cerrar Stage 4 |
 
 ---
 
@@ -117,15 +117,47 @@ Específicos:
 - [ ] **S4.3** Demo real de **voz humana** registrada en bitácora (con transcripción) — pendiente: el test S4.2 usa TTS (voz sintética) como fuente reproducible; falta la grabación de voz humana
 - [x] **S4.4** Micrófono bloqueado/ocupado → error claro, sin bloquear el núcleo — sin servidor rc=1 con mensaje; fallo OpenSL inyectado rc=1 con guía; `stt-mic.sh` rc=1 y el núcleo emite `eof` (sin hang); sin servidores PA residuales
 
-### Stage 5 — Expansión (opcional)
+### Stage 5 — Expansión (whisper.cpp + salida remota)
 
-- [ ] **S5.1** Alcance definido y registrado en `docs/PLAN.md` (candidatos: whisper.cpp, servicio, sesiones múltiples)
-- [ ] **S5.2** Checks específicos escritos al definir el alcance
-- Generales G1–G6: al ejecutar
+Alcance **definido y aprobado por el usuario** en la Sesión 007: **A** adaptador
+`stt-adapter-whisper` (multi-idioma) + **B** salida remota `--out` con fan-out.
+Definición completa en [`docs/PLAN.md`](docs/PLAN.md) §Stage 5; decisiones
+**D12/D13** en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) §8. Sesiones
+múltiples quedan fuera de alcance (posible Stage 6).
+
+Específicos:
+- [x] **S5.1** Alcance definido y registrado en `docs/PLAN.md` — aprobado por el usuario (Sesión 007): A (whisper.cpp) + B (`--out`); sesiones múltiples fuera de alcance
+- [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.8 en esta sección
+- [ ] **S5.3** `stt-adapter-whisper` compila contra `whisper.cpp-libs` del sistema (`-Wall -Wextra`) y completa el handshake `stt-adapter/1` (`ready` + capabilities)
+- [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS)
+- [ ] **S5.5** RTF ≤ 0.5 y RSS pico < 350 MB (frames de 5 s y 10 s)
+- [ ] **S5.6** Cache de modelo idempotente en `var/models/whisper-tiny/` (2ª corrida con `--offline`)
+- [ ] **S5.7** Selección de motor por config/flag; moonshine sigue siendo el default; regresión de stages 1–4 en verde
+- [ ] **S5.8** `--out tcp://…` (y `unix://…`): 2 clientes simultáneos reciben los mismos eventos NDJSON; sobrecoste de latencia ≤ 10 ms; la desconexión de un cliente no afecta al pipeline ni al otro
+
+Generales G1–G6: al ejecutar
 
 ---
 
 ## Bitácora
+
+### Sesión 007 — 2026-10-22
+**Alcance**: definición del alcance del Stage 5 (Expansión) y registro en docs. Sin cambios de código.
+
+**Hechos**:
+- Alcance aprobado por el usuario: **A** — adaptador `stt-adapter-whisper` (C++ contra `whisper.cpp-libs`; disponibilidad verificada: `apk search whisper` → `whisper.cpp-1.9.3-r0`, `-libs`, `-dev` en los repos) + **B** — salida remota `stt stream --out tcp:// | unix://` con fan-out. **Sesiones múltiples** quedan fuera de alcance (posible Stage 6).
+- Objetivos whisper: **RTF ≤ 0.5, RSS < 350 MB** (más laxos que Moonshine 0.35/300 MB: el encoder multi-idioma de whisper tiny es más pesado en este hardware). RAM disponible verificada: 1751 MB.
+- Selección de motor sin cambios de núcleo: ya existe `--adapter CMD` / `[adapter] cmd` (verificado en `core/cmd/stt/main.go` y `config/stt.toml`).
+- Definición completa en `docs/PLAN.md` §Stage 5; checks **S5.1–S5.8** en este documento; decisiones **D12** (segundo motor) y **D13** (transporte de salida; extiende D3 de forma compatible) en `docs/ARQUITECTURA.md` §8.
+- Orden de ejecución: primero cerrar Stage 4 (**S4.3** demo de voz humana), luego Stage 5 desde **S5.3**.
+
+**Archivos tocados**: `docs/PLAN.md`, `docs/ARQUITECTURA.md`, `README.md`, `PROGRESO.md`.
+
+**Checks**: S5.1 ✅, S5.2 ✅ (definición); S5.3–S5.8 al ejecutar.
+
+**Decisiones nuevas**: D12, D13.
+
+**Siguiente paso**: **S4.3** — demo de voz humana (pasos exactos en la bitácora de la Sesión 006); tras el cierre de Stage 4, iniciar Stage 5 por **S5.3**.
 
 ### Sesión 006 — 2026-10-22
 **Alcance**: Stage 4 — micrófono real Android/Termux → `stt stream`, con método documentado, scripts, tests y verificación S4.1–S4.4.
