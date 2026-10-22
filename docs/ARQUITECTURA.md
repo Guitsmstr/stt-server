@@ -52,6 +52,37 @@ Versión del documento: 1 (2026-10-22). Los contratos detallados están en
 - **Adaptadores de entrada**: procesos externos que alimentan al núcleo por
   stdin (pipe) o por hotfolder (Stage 4). El núcleo no los supervisa.
 
+### 3.1 Captura de micrófono (Stage 4, decisión D11)
+
+El micrófono **no** es accesible por ALSA desde el chroot (el HAL de Android no
+enruta la captura). La entrada real se obtiene en el lado Android:
+
+```
+micrófono → OpenSL ES (module-sles-source de PulseAudio)
+          → pulseaudio (Termux, uid/contexto de la app)
+          → 127.0.0.1:4713 (native protocol, solo loopback)
+          → parec (PCM s16le/16k/mono)
+          → scripts/termux-capture.sh → pipe → stt stream
+```
+
+- `scripts/termux-capture.sh` arranca un PulseAudio privado con
+  `module-sles-source source_name=stt_mic_<puerto> rate=16000 channels=1` y
+  expone el protocolo nativo en loopback. Si ya hay un servidor compatible lo
+  reutiliza; al salir solo detiene el que arrancó él.
+- En el chroot (root/Magisk) el cliente de audio debe correr con el **uid de
+  Termux** y el dominio `untrusted_app`; `scripts/android_runas.c` (instalado
+  como `runas-ctx` por `scripts/termux-mic-setup.sh`) hace ese cambio de
+  uid/contexto. El setup también concede `RECORD_AUDIO` y pone el appop en
+  `allow`.
+- `scripts/stt-mic.sh` conecta la captura a `stt stream` por una FIFO y
+  propaga el fallo de captura (el núcleo recibe EOF y cierra con `eof`; no se
+  bloquea).
+- El contrato del núcleo **no cambia**: `stt-events/1` y `stt-adapter/1` siguen
+  igual; la entrada es PCM crudo por stdin (CONTRATOS §4).
+- El hotfolder de CONTRATOS §4 no se usa en v1: se prefirió el pipe continuo
+  (sin cortes por chunk ni decodificación de contenedores).
+- Operación, permisos y diagnóstico: [`OPERACION.md`](OPERACION.md).
+
 ## 4. Pipeline interno del núcleo
 
 1. **ingest**: lee PCM s16le 16 kHz mono de stdin (o archivo WAV).
@@ -129,6 +160,9 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | Adaptador no emite `ready` en 30 s | error fatal con mensaje claro |
 | Audio con formato no soportado | rechazo inmediato con `error` por stdout + exit ≠ 0 |
 | stdout consumidor se va (EPIPE) | el núcleo termina ordenadamente |
+| Micrófono ocupado / permiso denegado (OpenSL) | `termux-capture.sh` imprime una guía clara y sale ≠ 0; el núcleo recibe EOF y cierra con `eof` |
+| Servidor de captura ausente o puerto ocupado | error claro; puertos 4713–4723 se prueban automáticamente, `--port` explícito falla con mensaje |
+| Adaptador de entrada muere a mitad de stream | el pipe se cierra; `stt` emite `eof` y termina; `stt-mic.sh` devuelve ≠ 0 y reporta el fallo |
 
 ## 8. Decisiones de diseño (registro ADR-lite)
 
@@ -144,6 +178,7 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | **D8** | 2026-10-22 | Tokenizador de **decodificación propio** en C++ sobre `vocab.tsv` generado en el fetch | parsear `tokenizer.json` en runtime (requiere JSON/BPE); enlazar `tokenizers-cpp` (dependencia extra) | sin dependencias nuevas y arranque rápido; verificado contra `tokenizers` de HF con los ids reales del modelo (Sesión 003) |
 | **D9** | 2026-10-22 | **Endpointer** con VAD de energía: pausa ≥90 ms, `min_segment_ms = 3 s`, pausa fuerte ≥300 ms que corta siempre, preroll de 200 ms en el onset, skip de silencios (`Speech=false`) y force-cut en el dip más profundo con tope `frame_ms = 5 s` + 300 ms | framing fijo de 2 s (Stage 1, parte frases y genera texto vacío en silencios); segmentos de 1 s (pierden colas de frase); cap de 10 s (la inferencia sola puede superar 800 ms y la latencia crece) | cobertura por repetición 96.9 % vs 85.3 % sin VAD en el stream de 5 min; latencia steady-state máx 0.53 s / p95 0.50 s (Sesión 005). El experimento mostró que un segmento abierto antes de un silencio largo debía cortarse por pausa fuerte aunque no llegara al mínimo |
 | **D10** | 2026-10-22 | El adaptador Moonshine **reintenta una vez** un resultado vacío recortando 200 ms de cada borde (tope ¼ del audio) | dos reintentos de 100/200 ms (triple inferencia: latencia > 1.2 s en la cola); no reintentar (pierde frases en duraciones desafortunadas) | conserva el texto en los spans vacíos del modelo y mantiene la cola de latencia dentro de S3.2; el `final` del adaptador expone `infer_s` y `retries` como diagnóstico (el núcleo los ignora en v1). Los vacíos genuinos (silencio) siguen devolviendo `""` |
+| **D11** | 2026-10-22 | Captura de micrófono en el **lado Android** con PulseAudio `module-sles-source` (OpenSL ES) + `parec` por pipe; helper `runas-ctx` para ejecutar como uid/contexto de Termux | ALSA en el chroot (HAL bloquea); termux-api en chunks AAC/hotfolder (cortes, decodificación y latencia); app Android propia (fuera de alcance) | PCM continuo s16le/16k/mono sin contenedor; requiere Termux:API + `RECORD_AUDIO` y setup root; la captura no se supervisa (si muere, EOF y cierre limpio del núcleo); hotfolder queda como alternativa futura. Verificado: S4.1, S4.2 (TTS acústico, 1.31–1.44 s) y S4.4 en la Sesión 006 |
 
 ---
 

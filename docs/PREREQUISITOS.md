@@ -2,7 +2,7 @@
 
 Entorno objetivo y de desarrollo: **este mismo dispositivo** (Alpine 3.24,
 musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
-(Sesión 005)**.
+(Sesión 006)**.
 
 ## 1. Toolchain
 
@@ -20,6 +20,9 @@ musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
 | `sox` | generar/convertir audio de prueba | ✅ instalado | — |
 | `python3` | harness de tests (streaming, cobertura, RSS) | ✅ instalado | solo herramientas de test; el runtime no usa Python |
 | `espeak` | TTS para generar audio de prueba | ✅ instalado | voz robótica; para demos reales usar voz humana |
+| `nsenter` (Alpine) | arrancar PulseAudio en el namespace Android | ✅ instalado | `apk add util-linux` (o BusyBox con nsenter) |
+| `ffmpeg` | diagnóstico/decodificación opcional | ✅ instalado | `apk add ffmpeg`; **no** es necesario para el pipe v1 |
+| `pulseaudio` + `pactl` + `parec` (Termux) | captura por OpenSL ES | ✅ instalado | paquete de Termux; el setup no los instala |
 
 **Instalación pendiente en un solo comando** (ejecutar al inicio del Stage 1):
 ```sh
@@ -40,7 +43,38 @@ Node ni GPU/NPU.
 | RAM | 3.6 GB (≈1.7 GB libres con el sistema activo) | modelos tiny/base; adaptador C++; vigilar RSS |
 | Disco | suficiente para modelos (~100–200 MB en `var/models`) | — |
 | Sistema | Alpine 3.24 (musl) en chroot root bajo Android | sin systemd; sin acceso al micrófono vía ALSA (HAL de Android bloquea la ruta de captura — **verificado**) |
-| Audio de entrada | micrófono solo accesible desde el lado Android | Stage 4: capturar con termux-api y pasar por pipe/hotfolder |
+| Audio de entrada | micrófono solo accesible desde el lado Android | Stage 4: PulseAudio `module-sles-source` (OpenSL ES) en Termux + `parec` por pipe; helper uid/SELinux (D11) |
+
+### 2.1 Captura de micrófono (Stage 4)
+
+Requisitos en el lado Android:
+
+- **Termux:API** instalado y `RECORD_AUDIO` concedido a `com.termux` y
+  `com.termux.api` (el setup lo hace con `pm grant`; el usuario también puede
+  concederlo en Ajustes > Apps > Termux > Permisos > Micrófono).
+- appop `RECORD_AUDIO = allow` para ambas apps.
+- PulseAudio 17 de Termux con `module-sles-source` (OpenSL ES) y `parec`.
+- El chroot debe poder usar `nsenter` y `gcc` (solo para el setup).
+
+Dentro del chroot, como root, una vez:
+
+```sh
+sh scripts/termux-mic-setup.sh
+```
+
+El setup es idempotente: concede permisos, compila/instala `runas-ctx` en el
+prefijo de Termux con la etiqueta SELinux de la app, escribe
+`var/bin/termux-mic.env` y verifica que el helper ejecuta binarios como el uid
+de Termux. **No revoques `RECORD_AUDIO` como prueba**: en la Sesión 006 se
+observó que el proceso de Termux se cae; usa el fallo OpenSL inyectado de
+`tests/run-stage4-tests.sh` (S4.4b).
+
+Arranque/verificación:
+
+```sh
+./scripts/termux-capture.sh --check   # fuente stt_mic_4713 disponible
+./scripts/stt-mic.sh                  # hablar; Ctrl-C para terminar
+```
 
 ## 3. Assets de modelos
 
@@ -74,6 +108,8 @@ echo 'int main(){return 0;}' > /tmp/t.cc && g++ /tmp/t.cc -o /tmp/t && /tmp/t &&
 | Tiempo de carga del modelo (Stage 2) | ~2.4 s (threads=4) |
 | **Cobertura Stage 3 (5 min, VAD)** | **96.9 % por repetición** (sin VAD 85.3 %) |
 | **Latencia Stage 3 (steady-state)** | **máx 0.531 s, p95 0.497 s, media 0.446 s** |
+| **Captura Stage 4 (S4.1)** | **8.5 s de PCM real; RMS 97.2, peak 409 en la suite final** (otras corridas 90–780 RMS; Sesión 006) |
+| **Latencia Stage 4 (S4.2, TTS acústico)** | **1.307 s** `arrival − t1` en la suite final (1.438 s en corrida limpia; objetivo ≤ 3 s) |
 | RAM del stack Python validado | no medida; el objetivo C++ es RSS < 300 MB con modelo |
 
 Medición reproducible: `make test-stage2` y `make test-stage3`

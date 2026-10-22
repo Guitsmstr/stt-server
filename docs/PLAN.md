@@ -103,10 +103,19 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
 
 ### Stage 4 — Entrada de audio real (Android/Termux)
 - **Objetivo**: hablar al micrófono del teléfono → texto en stdout.
-- **Entregables**: `scripts/termux-capture.sh` (lado Android, vía termux-api u
-  alternativa), adaptador de entrada (hotfolder o pipe), documentación operativa.
+- **Método elegido (D11)**: captura en el lado Android con PulseAudio 17 +
+  `module-sles-source` (OpenSL ES), expuesta en `127.0.0.1:4713` y consumida con
+  `parec` como PCM s16le/16k/mono por un **pipe** hacia `stt stream`. Un helper
+  (`runas-ctx`) ejecuta el cliente con el uid/contexto SELinux de Termux porque
+  el chroot corre como root/Magisk y OpenSL rechaza ese dominio. El hotfolder
+  de CONTRATOS §4 queda como alternativa futura, no se usa en v1.
+- **Entregables**: `scripts/termux-mic-setup.sh` (permisos + helper idempotente),
+  `scripts/termux-capture.sh` (PulseAudio/parec), `scripts/stt-mic.sh` (captura
+  → `stt stream`), `scripts/termux-speak.sh` (TTS para demos), `tests/live_probe.py`
+  + `tests/run-stage4-tests.sh` y `docs/OPERACION.md`.
 - **Criterio de salida**: demo real de voz humana → texto en ≤ 3 s, registrado
-  en la bitácora.
+  en la bitácora. (S4.1/S4.2/S4.4 verificados en la Sesión 006 con micrófono y
+  TTS acústico; S4.3 espera la grabación de voz humana.)
 
 ### Stage 5 — Expansión (opcional, alcance por definir al llegar)
 - Candidatos: adaptador `whisper.cpp` (multi-idioma), servicio/autostart,
@@ -116,7 +125,7 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| HAL de Android bloquea el micro desde el chroot (ya observado) | Alto (Stage 4) | captura en el lado Android + canal por archivos/pipes |
+| HAL de Android bloquea el micro desde el chroot (ya observado) | Alto (Stage 4) | captura en el lado Android (PulseAudio/OpenSL) + pipe PCM; helper uid/SELinux (D11) |
 | Solo inglés (Moonshine) | Medio | arquitectura de adaptadores lo permite: whisper.cpp u otro en Stage 5 |
 | RAM limitada (3.6 GB, ~1.7 libres) | Medio | adaptadores C++, modelos tiny/base, cuantización int8 |
 | Quirks de musl | Bajo | ya resuelto para ORT Python; C++ usa `libonnxruntime` de los repos Alpine |

@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 4 — ⬜ no iniciado** (Stage 3 cerrado en la Sesión 005) |
-| **Última actualización** | 2026-10-22 (Sesión 005) |
-| **Siguiente paso** | **Stage 4**: captura de micrófono Android/Termux → pipe/hotfolder → `stt stream`, y checks S4.1–S4.4 |
+| **Stage actual** | **Stage 4 — 🟨 implementación y verificación (S4.3 demo de voz humana pendiente)** |
+| **Última actualización** | 2026-10-22 (Sesión 006) |
+| **Siguiente paso** | **S4.3**: grabar voz humana real con `./scripts/stt-mic.sh` (o `tests/live_probe.py` sin `--speak-cmd`), registrar transcripción + latencia y cerrar Stage 4 |
 
 ## Estado de stages
 
@@ -18,7 +18,7 @@
 | 1 | Contratos + harness Go + adaptador eco | ✅ cerrado |
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
-| 4 | Entrada de audio real (Android/Termux) | ⬜ no iniciado |
+| 4 | Entrada de audio real (Android/Termux) | 🟨 implementación completa; S4.3 demo humana pendiente |
 | 5 | Expansión (opcional) | ⬜ no iniciado |
 
 ---
@@ -104,18 +104,18 @@ Específicos:
 ### Stage 4 — Entrada de audio real (Android/Termux)
 
 Generales:
-- [ ] **G1** Build limpio
-- [ ] **G2** Checks específicos con evidencia
-- [ ] **G3** Docs sincronizadas (`docs/` operación actualizada)
-- [ ] **G4** PROGRESO actualizado
-- [ ] **G5** Sin regresiones (Stage 3: streaming por pipe sigue funcionando)
-- [ ] **G6** Limpieza
+- [x] **G1** Build limpio — `make all` + `cd core && go vet ./...` OK (Sesión 006)
+- [x] **G2** Checks específicos con evidencia — `sh tests/run-stage4-tests.sh` → `ALL STAGE 4 CHECKS OK`; log `var/tmp/stage4/stage4-run.log`
+- [x] **G3** Docs sincronizadas — nuevo `docs/OPERACION.md`; `ARQUITECTURA` §3.1/§7/D11; `CONTRATOS` §4/§8; `PLAN` Stage 4; `PREREQUISITOS` §2.1; `README`
+- [x] **G4** PROGRESO actualizado — esta bitácora (Sesión 006)
+- [x] **G5** Sin regresiones — `make test` (Stage 1) OK; Stage 2 OK; Stage 3 smoke (VAD+Moonshine) 6 finales / 9.963 s. No hubo cambios de núcleo; la suite completa de Stage 3 no se re-ejecutó
+- [x] **G6** Limpieza — artefactos de test solo en `var/tmp/stage4/`; `.stt` de Termux y `/data/local/tmp` limpiados; helper/env runtime en `var/bin` (gitignored)
 
 Específicos:
-- [ ] **S4.1** Captura desde el micrófono del teléfono hacia el chroot (método documentado)
-- [ ] **S4.2** Voz humana → texto en stdout en **≤ 3 s** desde el fin de la frase
-- [ ] **S4.3** Demo real de voz humana registrado en bitácora (con transcripción)
-- [ ] **S4.4** Micrófono bloqueado/ocupado → error claro, sin bloquear el núcleo
+- [x] **S4.1** Captura desde el micrófono del teléfono hacia el chroot (método documentado) — 8.5 s de PCM real (272 000 bytes; RMS 97.2, peak 409 en la suite final; otras corridas 90–780 RMS), `stt` cierra con `eof`; método en `docs/OPERACION.md`
+- [x] **S4.2** Texto en stdout en **≤ 3 s** desde el fin de la frase — TTS acústico por el altavoz: **`arrival − t1 = 1.307 s`** en la suite final y 1.438 s en una corrida limpia; objetivo ≤ 3 s; `var/tmp/stage4/live_s42.json` y `live_s42_clean.json`
+- [ ] **S4.3** Demo real de **voz humana** registrada en bitácora (con transcripción) — pendiente: el test S4.2 usa TTS (voz sintética) como fuente reproducible; falta la grabación de voz humana
+- [x] **S4.4** Micrófono bloqueado/ocupado → error claro, sin bloquear el núcleo — sin servidor rc=1 con mensaje; fallo OpenSL inyectado rc=1 con guía; `stt-mic.sh` rc=1 y el núcleo emite `eof` (sin hang); sin servidores PA residuales
 
 ### Stage 5 — Expansión (opcional)
 
@@ -126,6 +126,47 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 006 — 2026-10-22
+**Alcance**: Stage 4 — micrófono real Android/Termux → `stt stream`, con método documentado, scripts, tests y verificación S4.1–S4.4.
+
+**Contexto y hallazgos**:
+- ALSA en el chroot sigue sin captura (HAL de Android). La vía que funciona en este dispositivo es **PulseAudio 17 de Termux + `module-sles-source` (OpenSL ES)**: `parec` entrega PCM s16le/16k/mono continuo por un pipe. Se descartó el hotfolder/chunks de Termux:API para v1 (cortes y decodificación de contenedor).
+- El chroot corre como **root/Magisk**; OpenSL ES rechaza clientes de captura con ese contexto. Se añadió un helper estático (`scripts/android_runas.c`, instalado como `runas-ctx`) que baja al uid de Termux y cambia al dominio `untrusted_app`; `scripts/termux-mic-setup.sh` lo compila/instala, concede `RECORD_AUDIO` y deja appop `allow`.
+- **Incidente**: probar el error revocando `RECORD_AUDIO` con `pm revoke` tumbó el proceso de Termux (y la sesión de trabajo). Se restauraron permisos con `pm grant` + appop `allow` y se re-ejecutó el setup. **No volver a revocar el permiso como prueba**; S4.4 usa un fallo OpenSL inyectado.
+- `/dev/null` había quedado como fichero regular (probablemente por una intervención manual anterior), lo que hacía fallar a zygote con `Failed to open /dev/null` y rompía Termux:API. Se restauró con `mknod` + `chcon u:object_r:null_device:s0`; el setup ahora lo comprueba/arregla.
+- Un `termux-tts-speak` interrumpido dejó el servicio Termux:API esperando para siempre. El test S4.2 hace `am force-stop com.termux.api` + `startservice .../.KeepAliveService` antes de hablar; el comando TTS va con `timeout 15`.
+- Bug de limpieza encontrado con `--check`: `pkill -f "source_name=..."` coincidía con su propia línea de comandos y no mataba el servidor PA. Corregido con el truco `[s]ource_name=...`; además `stop_server` borra el runtime de PulseAudio.
+
+**Implementado**:
+- `scripts/android_runas.c` + `scripts/termux-mic-setup.sh`: permisos, helper `runas-ctx`, `var/bin/termux-mic.env`.
+- `scripts/termux-capture.sh`: modos `termux`/`android`, selección de puerto 4713–4723, arranque/parada del PulseAudio propio, `parec` a stdout, errores claros (permiso/OpenSL, servidor ausente, puerto ocupado), `--check`/`--list`.
+- `scripts/stt-mic.sh`: FIFO captura → `stt stream`, propagación del fallo de captura, limpieza de hijos.
+- `scripts/termux-speak.sh`: TTS por el altavoz para demos/tests.
+- `tests/live_probe.py` + `tests/run-stage4-tests.sh`: probe de latencia en vivo y checks S4.1–S4.4 + regresiones rápidas.
+- Docs: `docs/OPERACION.md`; `ARQUITECTURA` §3.1/§7/D11; `CONTRATOS` §4/§8; `PLAN` Stage 4; `PREREQUISITOS` §2.1; `README`.
+
+**Evidencia (`sh tests/run-stage4-tests.sh` → `ALL STAGE 4 CHECKS OK`; log `var/tmp/stage4/stage4-run.log`)**:
+- **G1**: `make all` + `go vet ./...` OK.
+- **G5**: `make test` (Stage 1) OK; Stage 2 OK; Stage 3 smoke (VAD+Moonshine, `beckett.wav` a 4×) 6 finales, `audio_s=9.963`; sin cambios de núcleo. No se re-ejecutó la suite completa de Stage 3.
+- **S4.1**: captura real 8.50 s (`272000` bytes); la suite final midió RMS 97.2 / peak 409 y otras corridas 90–780 RMS / peak 8033 (depende del ruido ambiente); `stt` sobre el PCM capturado cierra con `eof`.
+- **S4.2**: TTS acústico por el altavoz con volumen multimedia 12. Suite final: **`speech_latency_max_s=1.307 s`**, transcripción `"Never tried ever failed no matter try again fail again fail better"` (`audio_s=21.5`, `skipped_s=17.46`). Corrida limpia posterior (artefacto separado): `arrival − t1 = 1.438 s`, `t0=3.79`, `t1=7.86`, `rtf=0.172`, transcripción `"Never try to ever feel no matter try again fail again fail better"`. Informes: `var/tmp/stage4/live_s42.json` y `live_s42_clean.json`.
+- **S4.3**: evidencia con **voz sintética** (TTS) en `var/tmp/stage4/s43_transcript.txt` y `live_s42_clean.json`; **voz humana pendiente** (check sin marcar).
+- **S4.4a**: `--no-start-server --port 4799` → rc=1, `no PulseAudio server...`, sin hang.
+- **S4.4b**: fallo OpenSL inyectado (prefijo falso) → rc=1, mensaje `mic busy or permission denied` + guía; sin tocar permisos reales.
+- **S4.4c**: `stt-mic.sh` con captura fallida → rc=1, el núcleo emite `eof`, sin hang; sin servidores PA residuales.
+
+**Archivos tocados**: `scripts/{android_runas.c,termux-mic-setup.sh,termux-capture.sh,stt-mic.sh,termux-speak.sh}`, `tests/{live_probe.py,run-stage4-tests.sh}`, `docs/{OPERACION.md,ARQUITECTURA.md,CONTRATOS.md,PLAN.md,PREREQUISITOS.md}`, `README.md`, `PROGRESO.md`.
+
+**Checks**: G1–G6 ✅. S4.1 ✅, S4.2 ✅ (TTS acústico), S4.3 ⬜ (demo humana pendiente), S4.4 ✅. Stage 4 queda **abierto** solo por S4.3.
+
+**Decisiones nuevas**: **D11** (captura en el lado Android con PulseAudio/OpenSL + `parec` por pipe; helper uid/SELinux; hotfolder no usado en v1), registrada en `docs/ARQUITECTURA.md §8`.
+
+**Siguiente paso**: grabar la demo de **voz humana** para S4.3:
+1. Abrir Termux y confirmar permiso de micrófono; si el helper falla, `sh scripts/termux-mic-setup.sh` (root, chroot).
+2. Ejecutar `./scripts/stt-mic.sh` y decir una frase; guardar los eventos NDJSON.
+3. Para medir latencia automáticamente, ejecutar `tests/live_probe.py` sin `--speak-cmd` y hablar tras ~3 s; el informe da `speech_latency_max_s` y la transcripción.
+4. Registrar transcripción + latencia en esta bitácora, marcar S4.3 `[x]`, cerrar Stage 4 y commit (`mic: close Stage 4 ...`).
 
 ### Sesión 005 — 2026-10-22
 **Alcance**: cerrar el Stage 3: experimento de duración de segmento, corrección del endpointer, decisiones de diseño, verificación formal S3.1–S3.5, sync de docs y cierre.

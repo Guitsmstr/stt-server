@@ -137,18 +137,36 @@ Un adaptador de entrada es cualquier proceso que produzca **PCM raw
 (s16le/16k/mono)** hacia el stdin de `stt stream`:
 
 ```sh
-termux-capture | stt stream          # pipe (Stage 4)
+./scripts/termux-capture.sh | stt stream   # pipe (Stage 4)
+./scripts/stt-mic.sh                       # atajo: captura + stt stream
 sox input.mp3 -t raw -r 16000 -e signed -b 16 -c 1 - | stt stream
-stt once archivo.wav                 # conveniencia: WAV PCM s16le 16k mono
+stt once archivo.wav                       # conveniencia: WAV PCM s16le 16k mono
 ```
 
 Aclaración v1 (2026-10-22, compatible): `stt once` acepta **únicamente** WAV
 PCM s16le 16 kHz mono; otros formatos se convierten antes con sox (el error lo
 indica). La normalización general es responsabilidad del adaptador de entrada.
 
-**Hotfolder** (definición preliminar, para Stage 4): directorio vigilado donde
-el adaptador de entrada deposita `NNNNNN.pcm` (numerados) y un marcador
-`NNNNNN.done`. El núcleo consume en orden. Detalle final al ejecutar Stage 4.
+**Método v1 para micrófono (Stage 4, decisión D11)** — pipe continuo:
+
+- `scripts/termux-capture.sh` captura en el **lado Android** con PulseAudio +
+  `module-sles-source` (OpenSL ES) y entrega PCM crudo s16le/16k/mono por
+  stdout, sin contenedor ni marcas de tiempo. Es un pipe, no un fichero.
+- El script arranca y posee el servidor PulseAudio que usa (loopback
+  `127.0.0.1`, puertos 4713–4723); al terminar lo detiene. Si ya hay un
+  servidor compatible, lo reutiliza.
+- Si la captura falla (permiso, micrófono ocupado, servidor ausente), el script
+  escribe un error claro en stderr y sale ≠ 0. El núcleo recibe EOF y cierra
+  ordenadamente con `eof`; no se queda bloqueado.
+- `scripts/stt-mic.sh` es el atajo que conecta ambos por una FIFO y propaga el
+  fallo de captura.
+- **No cambia** `stt-events/1` ni `stt-adapter/1`; el núcleo sigue siendo la
+  autoridad de `t0`/`t1`. Detalle operativo en [`OPERACION.md`](OPERACION.md).
+
+**Hotfolder** (definición preliminar, **no usada en v1**): directorio vigilado
+donde el adaptador de entrada deposita `NNNNNN.pcm` (numerados) y un marcador
+`NNNNNN.done`. Se conserva como alternativa futura; v1 prefiere el pipe
+continuo para no cortar frases ni decodificar contenedores.
 
 ## 5. Ejemplo de sesión completa (real — Stage 1, 2026-10-22)
 
@@ -223,6 +241,23 @@ de 0.3–1.2 s). Extracto de la salida (eventos consecutivos):
 Evidencia asociada (Sesión 005): cobertura por repetición 96.9 % (VAD) vs
 85.3 % sin VAD; latencia steady-state `arrival − t1` máx 0.531 s, p95 0.497 s;
 30 min a 6× con RSS del núcleo estable (drift −28 kB) y 1008/1008 frames.
+
+## 8. Ejemplo real de micrófono (Stage 4, 2026-10-22)
+
+`tests/live_probe.py` captura el micrófono mientras `scripts/termux-speak.sh`
+pronuncia la frase de referencia por el altavoz (loopback acústico). Evento
+`final` real y métricas del probe:
+
+```json
+{"type":"start","audio":{"rate":16000,"channels":1,"format":"s16le"}}
+{"type":"final","text":"Never try to ever feel no matter try again fail again fail better","t0":3.79,"t1":7.86,"rtf":0.172,"model":"moonshine-tiny"}
+{"type":"eof","frames":1,"audio_s":21.5,"skipped_s":17.43,"rss_kb":261604}
+```
+
+`arrival − t1 = 1.438 s` (objetivo S4.2 ≤ 3 s; la suite final midió
+1.307 s). El probe añade
+`arrival`/`latency` a su informe JSON; esos campos **no** forman parte del
+evento `stt-events/1`. La demo de voz humana de S4.3 queda pendiente.
 
 ---
 

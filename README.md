@@ -12,7 +12,7 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 
 | | |
 |---|---|
-| **Estado** | Stage 3 — streaming continuo ✅ (ver [`PROGRESO.md`](PROGRESO.md)) |
+| **Estado** | Stage 4 — entrada de audio real ✅ implementación (S4.3 demo de voz humana pendiente; ver [`PROGRESO.md`](PROGRESO.md)) |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -24,7 +24,8 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 3. [`docs/REGLAS.md`](docs/REGLAS.md) — reglas de trabajo entre sesiones
 4. [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) — componentes + registro de decisiones (D1, D2, ...)
 5. [`docs/CONTRATOS.md`](docs/CONTRATOS.md) — especificación de interfaces (la verdad del sistema)
-6. [`docs/PREREQUISITOS.md`](docs/PREREQUISITOS.md) — toolchain, hardware, assets
+6. [`docs/OPERACION.md`](docs/OPERACION.md) — micrófono real: setup, uso y diagnóstico
+7. [`docs/PREREQUISITOS.md`](docs/PREREQUISITOS.md) — toolchain, hardware, assets
 
 ## 🗂️ Estructura
 
@@ -35,7 +36,7 @@ stt/
 ├── core/                       ← módulo Go del núcleo (cmd/, internal/)
 ├── adapters/                   ← adaptadores de modelo (echo, moonshine — C++)
 ├── config/                     ← stt.toml
-├── scripts/                    ← fetch-model.sh, captura Termux (Stage 4)
+├── scripts/                    ← fetch-model, setup/captura de micrófono (Stage 4)
 ├── tests/                      ← pruebas de protocolo, audio real (assets/)
 └── var/                        ← runtime local: modelos, tmp (NO versionado)
 ```
@@ -48,6 +49,7 @@ make models                 # descarga idempotente en var/models/ (~109 MB)
 make test                   # tests Go + smoke Stage 1 (echo)
 make test-stage2            # S2.1–S2.5 (Moonshine real, RTF y RSS)
 make test-stage3            # S3.1–S3.5 (streaming 5/30 min, latencia, VAD, RSS)
+make test-stage4            # S4.1–S4.4 (micrófono real + TTS acústico)
 
 # one-shot (WAV PCM s16le 16 kHz mono)
 ./var/bin/stt once --adapter adapters/moonshine/stt-adapter-moonshine \
@@ -55,7 +57,17 @@ make test-stage3            # S3.1–S3.5 (streaming 5/30 min, latencia, VAD, RS
 
 # streaming continuo: PCM raw por stdin -> NDJSON por stdout
 sox input.wav -t raw -r 16000 -e signed -b 16 -c 1 - | ./var/bin/stt stream
+
+# micrófono real (Stage 4): una vez como root dentro del chroot
+sh scripts/termux-mic-setup.sh
+
+# hablar al teléfono -> texto NDJSON (Ctrl-C para terminar)
+./scripts/stt-mic.sh
 ```
+
+El micrófono no es accesible por ALSA desde el chroot: la captura corre en el
+lado Android con PulseAudio + OpenSL ES (`module-sles-source`) y llega al
+núcleo por un pipe de PCM. Ver [`docs/OPERACION.md`](docs/OPERACION.md).
 
 El núcleo lee `config/stt.toml` (cwd) o `--config FILE`; los flags pisan el
 archivo. Segmentación por defecto: VAD activo, segmentos de hasta 5 s,
