@@ -60,8 +60,11 @@ def main():
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--chunk-ms", type=float, default=100.0)
     ap.add_argument("--frame-ms", type=int, default=2000)
+    ap.add_argument("--min-segment-ms", type=int, default=None)
     ap.add_argument("--vad", default="true")
     ap.add_argument("--partials", action="store_true")
+    ap.add_argument("--warmup-s", type=float, default=5.0,
+                    help="exclude finals starting before this stream time from steady-state latency")
     ap.add_argument("--report", required=True)
     args = ap.parse_args()
 
@@ -71,6 +74,8 @@ def main():
 
     cmd = [args.stt, "stream", "--adapter", args.adapter,
            f"--vad={args.vad}", f"--frame-ms={args.frame_ms}"]
+    if args.min_segment_ms is not None:
+        cmd += [f"--min-segment-ms={args.min_segment_ms}"]
     if args.model:
         cmd += ["--model", args.model]
     if args.partials:
@@ -142,6 +147,14 @@ def main():
     eof = next((e["event"] for e in events if e["event"].get("type") == "eof"), None)
 
     fin_lat = [e["arrival"] - e["event"].get("t1", 0.0) for e in finals]
+    steady = [e for e in finals if e["event"].get("t0", 0.0) >= args.warmup_s]
+    steady_lat = [e["arrival"] - e["event"].get("t1", 0.0) for e in steady]
+
+    def pct(vals, p):
+        if not vals:
+            return None
+        vals = sorted(vals)
+        return vals[min(len(vals) - 1, int(round((len(vals) - 1) * p / 100.0)))]
     max_t1 = max((e["event"].get("t1", 0.0) for e in finals), default=0.0)
     b_lat = []
     b = args.frame_ms / 1000.0
@@ -166,6 +179,11 @@ def main():
         "eof": eof,
         "latency_final_max_s": round(max(fin_lat), 3) if fin_lat else None,
         "latency_final_avg_s": round(sum(fin_lat) / len(fin_lat), 3) if fin_lat else None,
+        "latency_final_p95_s": round(pct(fin_lat, 95), 3) if fin_lat else None,
+        "latency_steady_max_s": round(max(steady_lat), 3) if steady_lat else None,
+        "latency_steady_avg_s": round(sum(steady_lat) / len(steady_lat), 3) if steady_lat else None,
+        "latency_steady_p95_s": round(pct(steady_lat, 95), 3) if steady_lat else None,
+        "steady_finals": len(steady),
         "latency_boundary_max_s": round(max(b_lat), 3) if b_lat else None,
         "boundaries_checked": len(b_lat),
         "nucleus_rss_max_kb": max(rss_nuc) if rss_nuc else None,

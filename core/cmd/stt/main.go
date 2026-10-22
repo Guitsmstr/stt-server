@@ -19,8 +19,8 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 	"sync"
+	"syscall"
 	"time"
 
 	"stt/internal/config"
@@ -31,7 +31,7 @@ import (
 	"stt/internal/wav"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 const defaultConfigPath = "config/stt.toml"
 
@@ -47,6 +47,7 @@ Options (stream/once; defaults come from config/stt.toml):
   --adapter CMD         model adapter command
   --model PATH          model path passed to the adapter
   --frame-ms N          target segment duration in ms
+  --min-segment-ms N    minimum audio before a pause may end a segment
   --vad BOOL            energy-aware cuts and silence skip (default true; --vad=false = fixed frames)
   --vad-threshold X     speech RMS threshold (samples normalized to [-1,1])
   --partials            forward adapter "partial" events to stdout
@@ -63,15 +64,16 @@ type resolved struct {
 	rate     int
 	channels int
 	// flag targets (values only meaningful if the flag was set)
-	adapterF     string
-	modelF       string
-	frameMsF     int
-	rateF        int
-	channelsF    int
-	maxRestartsF int
-	vadF         bool
-	thresholdF   float64
-	partialsF    bool
+	adapterF      string
+	modelF        string
+	frameMsF      int
+	minSegmentMsF int
+	rateF         int
+	channelsF     int
+	maxRestartsF  int
+	vadF          bool
+	thresholdF    float64
+	partialsF     bool
 }
 
 // parseOptions loads the config (honoring an early --config flag) and parses
@@ -113,6 +115,7 @@ func parseOptions(name string, args []string) (resolved, error) {
 	fs.StringVar(&r.adapterF, "adapter", cfg.Adapter.Cmd, "model adapter command")
 	fs.StringVar(&r.modelF, "model", "", "model path passed to the adapter")
 	fs.IntVar(&r.frameMsF, "frame-ms", cfg.Segment.FrameMs, "target segment duration in ms")
+	fs.IntVar(&r.minSegmentMsF, "min-segment-ms", cfg.Segment.MinSegmentMs, "minimum audio before a pause may end a segment")
 	fs.IntVar(&r.rateF, "rate", cfg.Audio.Rate, "sample rate of the input PCM")
 	fs.IntVar(&r.channelsF, "channels", cfg.Audio.Channels, "channels of the input PCM")
 	fs.IntVar(&r.maxRestartsF, "max-restarts", cfg.Runner.MaxRestarts, "adapter restart budget")
@@ -143,6 +146,9 @@ func parseOptions(name string, args []string) (resolved, error) {
 	}
 	if set["frame-ms"] {
 		r.cfg.Segment.FrameMs = r.frameMsF
+	}
+	if set["min-segment-ms"] {
+		r.cfg.Segment.MinSegmentMs = r.minSegmentMsF
 	}
 	if set["rate"] {
 		r.cfg.Audio.Rate = r.rateF
@@ -231,6 +237,7 @@ func segmentOptions(o resolved) segment.Options {
 		HopMs:        o.cfg.Segment.HopMs,
 		Threshold:    o.cfg.Segment.VADRMS,
 		MinSpeechMs:  o.cfg.Segment.MinSpeechMs,
+		MinSegmentMs: o.cfg.Segment.MinSegmentMs,
 		MaxStretchMs: o.cfg.Segment.MaxStretchMs,
 		VAD:          o.cfg.Segment.VAD,
 	}
@@ -278,10 +285,10 @@ func runPipeline(o resolved, source func(context.Context) <-chan segment.Segment
 	_ = out.Event(protocol.Event{Type: "start", Audio: &hdr.Audio})
 
 	r := runner.New(runner.Config{
-		Cmd:         o.cfg.Adapter.Cmd,
-		Args:        o.cfg.Adapter.Args,
-		Header:      hdr,
-		MaxRestarts: o.cfg.Runner.MaxRestarts,
+		Cmd:           o.cfg.Adapter.Cmd,
+		Args:          o.cfg.Adapter.Args,
+		Header:        hdr,
+		MaxRestarts:   o.cfg.Runner.MaxRestarts,
 		RestartWindow: time.Duration(o.cfg.Runner.RestartWindowS) * time.Second,
 	})
 

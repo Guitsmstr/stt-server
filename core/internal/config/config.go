@@ -27,6 +27,7 @@ type Segment struct {
 	VADRMS       float64 // speech threshold: RMS of samples normalized to [-1,1]
 	HopMs        int     // VAD analysis hop
 	MinSpeechMs  int     // segments with less speech than this are dropped
+	MinSegmentMs int     // minimum audio before a pause may end a segment
 	MaxStretchMs int     // how far past FrameMs a segment may stretch to find a dip
 }
 
@@ -61,8 +62,8 @@ func Default() Config {
 	return Config{
 		Audio: Audio{Rate: 16000, Channels: 1, Format: "s16le"},
 		Segment: Segment{
-			FrameMs: 2000, VAD: true, VADRMS: 0.01, HopMs: 30,
-			MinSpeechMs: 0, MaxStretchMs: 300,
+			FrameMs: 5000, VAD: true, VADRMS: 0.01, HopMs: 30,
+			MinSpeechMs: 0, MinSegmentMs: 3000, MaxStretchMs: 300,
 		},
 		Adapter: Adapter{Cmd: "adapters/echo/stt-adapter-echo"},
 		Runner:  Runner{MaxRestarts: 3, RestartWindowS: 60},
@@ -150,6 +151,8 @@ func assign(c *Config, section, key, val string) error {
 		return setInt(val, &c.Segment.HopMs)
 	case "segment.min_speech_ms":
 		return setInt(val, &c.Segment.MinSpeechMs)
+	case "segment.min_segment_ms":
+		return setInt(val, &c.Segment.MinSegmentMs)
 	case "segment.max_stretch_ms":
 		return setInt(val, &c.Segment.MaxStretchMs)
 	case "adapter.cmd":

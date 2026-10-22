@@ -52,6 +52,12 @@ Después, **frames binarios** con prefijo de longitud:
 Ejemplo: frame de 2 s a 16 kHz mono s16le ⇒ N = 64000 bytes. El último frame
 del stream puede ser más corto (frames de longitud arbitraria permitidos).
 
+Aclaración Stage 3 (compatible): con VAD el núcleo envía **segmentos de
+longitud variable** (cortes en pausas, mínimo `min_segment_ms`, tope
+`frame_ms` + `max_stretch_ms`). `frame_ms` es una cadencia objetivo, no una
+longitud garantizada: el adaptador debe aceptar cualquier N > 0, igual que ya
+hacía con el último frame.
+
 ### 2.3 Eventos (adaptador → núcleo, stdout, NDJSON)
 
 ```json
@@ -67,7 +73,14 @@ del stream puede ser más corto (frames de longitud arbitraria permitidos).
 | `t0`,`t1` | segundos de audio acumulado al inicio/fin del segmento transrito |
 | `rtf` | tiempo de inferencia / duración de audio (menor = más rápido) |
 | `partial` | opcional; el núcleo puede descartarlo según config |
+| `infer_s` | opcional en `final`: segundos de inferencia acumulados (diagnóstico) |
+| `retries` | opcional en `final`: reintentos anti-vacío aplicados (diagnóstico) |
 | `rss_kb` | opcional en `bye`: RSS máximo del adaptador (diagnóstico, kB) |
+
+Los adaptadores pueden añadir campos de diagnóstico sin cambiar de versión.
+Moonshine reintenta una vez un resultado vacío recortando 200 ms de cada borde
+(con tope ¼ del audio) porque el modelo emite EOS vacío en duraciones
+desafortunadas; un silencio genuino sigue devolviendo `"text":""`.
 
 Los consumidores (el núcleo) **deben ignorar campos desconocidos**; los
 adaptadores pueden añadir diagnóstico en `bye` sin cambiar de versión.
@@ -104,6 +117,15 @@ Reglas:
   habla).
 - `rss_kb` en `eof` es opcional: RSS máximo reportado por el adaptador
   (diagnóstico).
+- `skipped_s` en `eof` (Stage 3): segundos de audio descartados por el VAD
+  (silencio). `audio_s = frames·audio enviado + skipped_s`; los finales solo
+  cubren audio enviado.
+- **El núcleo es la autoridad de `t0`/`t1`**: re-sella cada `final`/`partial`
+  con la línea de tiempo real del stream. Tras un skip de VAD, los `t0`/`t1`
+  que calcula el adaptador a partir de los bytes recibidos estarían comprimidos
+  y no sirven como tiempo del stream.
+- `partial` solo se emite si el adaptador declara la capability `partial` y
+  `[output] partials = true`; en caso contrario se descarta silenciosamente.
 - El orden es temporal; no hay eventos tras `eof`.
 - **Los consumidores deben ignorar campos desconocidos** (los adaptadores o
   versiones futuras pueden añadir campos extra).
@@ -174,7 +196,7 @@ $ ./var/bin/stt once --adapter adapters/moonshine/stt-adapter-moonshine \
 {"type":"eof","frames":1,"audio_s":9.963375000000001,"rss_kb":262968}
 ```
 
-Con frames de 2 s (segmentación todavía sin VAD, Stage 3) el corte parte
+Con frames fijos de 2 s (Stage 2, antes del VAD de Stage 3) el corte parte
 frases; los frames sin habla producen `"text":""`:
 
 ```json
@@ -182,6 +204,25 @@ frases; los frames sin habla producen `"text":""`:
 {"type":"final","text":"The failed. No matter.","frame":1,"t0":2,"t1":4,"rtf":0.2,"model":"moonshine-tiny"}
 {"type":"final","text":"","frame":2,"t0":4,"t1":6,"rtf":0.08,"model":"moonshine-tiny"}
 ```
+
+## 7. Ejemplo de streaming continuo real (Stage 3, 2026-10-22)
+
+`tests/run-stage3-tests.sh` alimenta 5 min de audio real en tiempo real
+(`var/tmp/stage3/stream5min.pcm`: 30 repeticiones de `beckett.wav` con pausas
+de 0.3–1.2 s). Extracto de la salida (eventos consecutivos):
+
+```json
+{"type":"start","audio":{"rate":16000,"channels":1,"format":"s16le"}}
+{"type":"final","text":"Ever tried.","t0":0.13,"t1":1.44,"rtf":0.182,"model":"moonshine-tiny"}
+{"type":"final","text":"Ever fail,","frame":1,"t0":1.66,"t1":2.61,"rtf":0.209,"model":"moonshine-tiny"}
+{"type":"final","text":"No matter.","frame":2,"t0":3.34,"t1":4.08,"rtf":0.252,"model":"moonshine-tiny"}
+...
+{"type":"eof","frames":180,"audio_s":319.901,"skipped_s":138.101,"rss_kb":261764}
+```
+
+Evidencia asociada (Sesión 005): cobertura por repetición 96.9 % (VAD) vs
+85.3 % sin VAD; latencia steady-state `arrival − t1` máx 0.531 s, p95 0.497 s;
+30 min a 6× con RSS del núcleo estable (drift −28 kB) y 1008/1008 frames.
 
 ---
 

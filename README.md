@@ -12,7 +12,7 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 
 | | |
 |---|---|
-| **Estado** | Stage 2 — adaptador Moonshine ✅ (ver [`PROGRESO.md`](PROGRESO.md)) |
+| **Estado** | Stage 3 — streaming continuo ✅ (ver [`PROGRESO.md`](PROGRESO.md)) |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -47,10 +47,21 @@ make core adapters          # núcleo Go + adaptadores C++
 make models                 # descarga idempotente en var/models/ (~109 MB)
 make test                   # tests Go + smoke Stage 1 (echo)
 make test-stage2            # S2.1–S2.5 (Moonshine real, RTF y RSS)
+make test-stage3            # S3.1–S3.5 (streaming 5/30 min, latencia, VAD, RSS)
 
+# one-shot (WAV PCM s16le 16 kHz mono)
 ./var/bin/stt once --adapter adapters/moonshine/stt-adapter-moonshine \
-    --model var/models/moonshine-tiny --frame-ms 10000 tests/assets/beckett.wav
+    --model var/models/moonshine-tiny tests/assets/beckett.wav
+
+# streaming continuo: PCM raw por stdin -> NDJSON por stdout
+sox input.wav -t raw -r 16000 -e signed -b 16 -c 1 - | ./var/bin/stt stream
 ```
+
+El núcleo lee `config/stt.toml` (cwd) o `--config FILE`; los flags pisan el
+archivo. Segmentación por defecto: VAD activo, segmentos de hasta 5 s,
+`min_segment_ms = 3000`, silencios descartados (`skipped_s` en `eof`). Flags
+útiles: `--vad=false` (framing fijo), `--frame-ms`, `--min-segment-ms`,
+`--vad-threshold`, `--partials` (solo si el adaptador declara la capability).
 
 ## 🧭 Cómo continuar el proyecto en una nueva sesión
 

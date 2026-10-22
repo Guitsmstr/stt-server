@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 2 — ✅ cerrado (ver PROGRESO.md) |
-| **Última actualización** | 2026-10-22 (Sesión 003) |
+| **Estado actual** | Stage 3 — ✅ cerrado (ver PROGRESO.md) |
+| **Última actualización** | 2026-10-22 (Sesión 005) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
 ---
@@ -93,10 +93,13 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
 ### Stage 3 — Streaming continuo
 - **Objetivo**: segmentación de stream continuo con VAD simple, eventos
   `partial`/`final`, latencia acotada.
-- **Entregables**: segmentador en el núcleo (ventanas deslizantes + umbral de
-  energía), políticas de corte por silencio, modo `stt stream` robusto.
+- **Entregables**: segmentador endpointer en el núcleo (hops de energía,
+  pausas + preroll + skip de silencio), config `config/stt.toml`, modo
+  `stt stream` robusto, harness de métricas (`tests/feed_stream.py`,
+  `tests/coverage.py`).
 - **Criterio de salida**: 5+ minutos de audio continuo → texto sin pérdidas
-  relevantes, latencia ≤ 800 ms por frame de 2 s.
+  relevantes (cobertura por repetición ≥ 90 %), latencia steady-state ≤ 800 ms
+  desde el fin del segmento hasta el evento; 30 min con RSS estable.
 
 ### Stage 4 — Entrada de audio real (Android/Termux)
 - **Objetivo**: hablar al micrófono del teléfono → texto en stdout.

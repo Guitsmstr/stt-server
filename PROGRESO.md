@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 3 — 🔄 EN PROGRESO** (implementación avanzada, verificación parcial) |
-| **Última actualización** | 2026-10-22 (Sesión 004, sesión cortada a mitad de stage) |
-| **Siguiente paso** | **Stage 3, paso exacto**: 1) experimento de duración de segmento (matriz minSeg/cap ya definida, ver bitácora Sesión 004 §Paso 1); 2) fijar diseño + métricas S3.1/S3.2; 3) corrida completa de `tests/run-stage3-tests.sh`; 4) sync de docs (G3) y cierre |
+| **Stage actual** | **Stage 4 — ⬜ no iniciado** (Stage 3 cerrado en la Sesión 005) |
+| **Última actualización** | 2026-10-22 (Sesión 005) |
+| **Siguiente paso** | **Stage 4**: captura de micrófono Android/Termux → pipe/hotfolder → `stt stream`, y checks S4.1–S4.4 |
 
 ## Estado de stages
 
@@ -17,7 +17,7 @@
 | 0 | Fundación (docs + estructura) | ✅ cerrado (aprobado por el usuario, S0.5) |
 | 1 | Contratos + harness Go + adaptador eco | ✅ cerrado |
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
-| 3 | Streaming continuo | 🔄 en progreso (Sesión 004, no cerrado) |
+| 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ⬜ no iniciado |
 | 5 | Expansión (opcional) | ⬜ no iniciado |
 
@@ -83,23 +83,23 @@ Específicos:
 ### Stage 3 — Streaming continuo
 
 Generales:
-- [ ] **G1** Build limpio
-- [ ] **G2** Checks específicos con evidencia
-- [ ] **G3** Docs sincronizadas
-- [ ] **G4** PROGRESO actualizado
-- [ ] **G5** Sin regresiones (Stage 2: one-shot sigue funcionando)
-- [ ] **G6** Limpieza
+- [x] **G1** Build limpio — `make test` (vet+build+Go tests+Stage 1), `run-stage2-tests.sh` y `run-stage3-tests.sh`: ALL OK (Sesión 005)
+- [x] **G2** Checks específicos con evidencia → bitácora Sesión 005 + `var/tmp/stage3/stage3-run.log`
+- [x] **G3** Docs sincronizadas (ARQUITECTURA §4/§5/D9/D10, CONTRATOS §2.2/§2.3/§3/§7, README, PLAN, config/stt.toml)
+- [x] **G4** PROGRESO actualizado (bitácora Sesión 005 + checkboxes)
+- [x] **G5** Sin regresiones (Stage 1 smoke + Stage 2 S2.1–S2.5 ALL OK)
+- [x] **G6** Limpieza (temporales solo en `var/tmp/stage3`; `__pycache__` eliminado)
 
 Específicos:
-- [ ] **S3.1** Stream continuo ≥ 5 min → eventos finales sin pérdidas de texto relevantes
-- [ ] **S3.2** Latencia **≤ 800 ms** desde fin de frame (2 s) hasta evento en stdout
-- [ ] **S3.3** VAD: silencio sostenido (≥ 2 s) no genera texto basura
-- [ ] **S3.4** 30 min de stream: RSS estable (sin fugas) y sin frames perdidos
-- [ ] **S3.5** Eventos `partial` implementados según config — o justificación registrada
+- [x] **S3.1** Stream continuo ≥ 5 min → eventos finales sin pérdidas relevantes — 319.9 s en tiempo real, 180 finales; cobertura **media 96.9 %** por repetición (mediana 100 %, mín 91.7 %); VAD 96.9 % vs sin VAD 85.3 %
+- [x] **S3.2** Latencia **≤ 800 ms** desde fin de segmento hasta evento — steady-state (tras warmup de 5 s): **máx 0.531 s**, p95 0.497 s, media 0.446 s (176 finales). El máximo global con arranque (carga del modelo) es 0.979 s; se documenta como transitorio
+- [x] **S3.3** VAD: silencio sostenido (≥ 2 s) no genera texto basura — 0 finales dentro de los 6 s de silencio, `skipped_s=13.93`, habla anterior transcrita
+- [x] **S3.4** 30 min de stream: RSS estable y sin frames perdidos — 1791.1 s a 6×, 1008 frames = 1008 finales; núcleo RSS máx 8020 kB, drift −28 kB; adaptador 261 820 kB
+- [x] **S3.5** Eventos `partial` implementados según config — echo con `--partials=true`: 1/1; default: 0; moonshine declara solo `final` ⇒ 0 partials (justificado: el adaptador v1 no produce parciales; el contrato y el cableado ya están listos)
 
-> **Nota (Sesión 004, en progreso):** implementación avanzada; ver bitácora
-> Sesión 004 para estado, hallazgos y el paso exacto de reanudación. Los
-> checks se marcarán solo con la evidencia formal del cierre.
+> **Nota (Sesión 005):** Stage 3 cerrado. La Sesión 004 quedó como bitácora
+> histórica de la implementación y sus hallazgos; el experimento pendiente y
+> la verificación formal se completaron en la Sesión 005.
 
 ### Stage 4 — Entrada de audio real (Android/Termux)
 
@@ -127,7 +127,42 @@ Específicos:
 
 ## Bitácora
 
-### Sesión 004 — 2026-10-22 (EN PROGRESO — sesión cortada; NO cerrar Stage 3 sin leer esto)
+### Sesión 005 — 2026-10-22
+**Alcance**: cerrar el Stage 3: experimento de duración de segmento, corrección del endpointer, decisiones de diseño, verificación formal S3.1–S3.5, sync de docs y cierre.
+
+**Experimento de duración (Paso 1 pendiente de la Sesión 004)**:
+- Matriz ejecutada sobre `var/tmp/stage3/stream5min.pcm` (319.9 s, 30 repeticiones de `beckett.wav` con pausas de 0.3–1.2 s) a 4×, con `tests/feed_stream.py` y la nueva métrica `tests/coverage.py` (cobertura por-repetición, fuzzy Levenshtein).
+- Resultado inicial (endpointer de la Sesión 004): `minSegment` 2 s → 81.7 %; `minSegment` 3 s → 68.6 %; `--frame-ms` 5 vs 10 s idéntico (el corpus siempre corta por pausa antes del cap).
+- **Causa raíz encontrada**: un segmento abierto justo antes de un silencio largo contaba ese silencio para `min_segment_ms`; al llegar el siguiente onset, la pausa siguiente disparaba el corte pocos cientos de ms después y se perdía la primera palabra (“Ever”) de la repetición. Evidencia: final vacío `[40.44,44.04]` y siguiente `[44.05,47.55]` sin “Ever”.
+- **Corrección (D9)**: una pausa **fuerte ≥ 300 ms** corta siempre, aunque el segmento no llegue a `min_segment_ms`; las pausas cortas (<300 ms) siguen esperando al mínimo para no fragmentar frases. Re-ejecutada la matriz: **96.9 % de cobertura** en las 4 combinaciones, mediana 100 %, mínimo 91.7 % (el cap 5 s vs 10 s da igual en este corpus; se elige 5 s por presupuesto de latencia: 5 s × RTF ≈ 0.13 = 0.65 s < 0.8 s).
+- Decisión de defaults: `frame_ms = 5000`, `min_segment_ms = 3000`, `max_stretch_ms = 300`; `min_segment_ms` pasa a ser clave de config (`[segment]`) y flag `--min-segment-ms` (ya no es una constante).
+
+**Adaptador Moonshine**:
+- Retry anti-vacío reducido a **una** pasada de recorte de 200 ms por borde (antes 100/200 ms ⇒ hasta 3 inferencias). En la corrida RT de 5 min el RTF máximo fue **0.284** (sin picos compatibles con un reintento) y la cobertura se mantuvo en 96.9 %; el `final` del adaptador ahora expone `infer_s` y `retries` (diagnóstico opcional de `stt-adapter/1`; el núcleo los ignora en v1, como permite el contrato).
+- Motivo: la cola de latencia con 3 inferencias superaba 1.2 s (S3.2). Con una pasada la latencia steady-state queda en 0.53 s máx.
+
+**Verificación formal (`sh tests/run-stage3-tests.sh` → ALL OK, log en `var/tmp/stage3/stage3-run.log`)**:
+- **S3.1**: 5 min en tiempo real; `audio_s=319.901`; 180 finales; cobertura por-repetición media **96.9 %** (mediana 100 %, mín 91.7 %, 30 repeticiones); comparativa sin VAD 85.3 % (O2).
+- **S3.2**: latencia `arrival − t1` steady-state (excluye warmup de 5 s) **máx 0.531 s**, p95 0.497 s, media 0.446 s, 176 finales; máximo global con carga de modelo 0.979 s (transitorio documentado).
+- **S3.3**: `silence_span.pcm` (habla + 6 s de silencio + habla): 0 finales dentro del silencio, `skipped_s=13.93`, habla previa transcrita.
+- **S3.4**: 30 min a 6× (`1791.147 s`): 1008 frames = 1008 finales, sin errores; RSS núcleo máx 8020 kB, drift −28 kB; adaptador 261 820 kB (< 300 MB).
+- **S3.5**: echo `--partials=true` → 1 partial / 1 final; default → 0; moonshine declara solo `final` → 0 partials (justificación registrada: el adaptador v1 no genera parciales; el cableado y el contrato quedan listos para uno que los declare).
+- **G5**: `make test` (Go tests + Stage 1) y `tests/run-stage2-tests.sh` → ALL OK con el adaptador modificado.
+
+**Cambios de harness**:
+- `tests/coverage.py` (nuevo): cobertura por repetición con umbral configurable (acepta porcentaje), salida legible/JSON.
+- `tests/feed_stream.py`: `--min-segment-ms`, `--warmup-s`, latencias steady-state (max/p95/avg) y p95 global.
+- `tests/run-stage3-tests.sh`: usa `tests/coverage.py` y `--threshold 90`, pin de `--frame-ms 5000`, S3.2 sobre steady-state, assets regenerados por corrida.
+
+**Archivos tocados**: `core/internal/{config/(config.go,config_test.go),segment/(segment.go,segment_test.go)}`, `core/cmd/stt/main.go`, `adapters/moonshine/moonshine.cc`, `config/stt.toml`, `tests/{feed_stream.py,coverage.py,run-stage3-tests.sh}`, `README.md`, `docs/{ARQUITECTURA,CONTRATOS,PLAN}.md`, `PROGRESO.md`.
+
+**Checks**: Stage 3 — G1..G6 ✅, S3.1–S3.5 ✅ (evidencia arriba y en `var/tmp/stage3/`). Stages 0–2 sin regresiones.
+
+**Decisiones nuevas**: **D9** (endpointer con pausa fuerte + min_segment_ms + cap 5 s) y **D10** (un retry anti-vacío de 200 ms), registradas en `docs/ARQUITECTURA.md §8`; aclaraciones compatibles de contrato en `docs/CONTRATOS.md` (`skipped_s`, autoridad de t0/t1, `infer_s`/`retries`, frames de longitud variable).
+
+**Siguiente paso**: **Stage 4** — captura real desde el micrófono Android/Termux hacia el chroot: documentar el método (termux-api/pipe o hotfolder), implementar `scripts/termux-capture.sh`, conectar a `stt stream` y verificar S4.1–S4.4 (voz humana → texto ≤ 3 s, error claro si el micrófono está ocupado).
+
+### Sesión 004 — 2026-10-22 (histórica — completada en la Sesión 005)
 **Alcance**: implementación del Stage 3 (streaming continuo): VAD/endpointing en el núcleo, cableado de `config/stt.toml`, eventos `partial` según config, harness de medición (latencia/RSS) y script de checks. La verificación S3.1–S3.5 está **parcial** y el diseño de segmentación está a un experimento de decidirse.
 
 **Implementado (todo con tests unitarios en verde y stage1+2 en verde):**

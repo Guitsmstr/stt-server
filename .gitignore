@@ -10,5 +10,7 @@ adapters/*/stt-adapter-*
 
 # basura
 *.wav.tmp
+__pycache__/
+*.pyc
 /tmp/
 .cache/

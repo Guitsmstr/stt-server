@@ -54,23 +54,60 @@ Versión del documento: 1 (2026-10-22). Los contratos detallados están en
 
 ## 4. Pipeline interno del núcleo
 
-1. **ingest**: lee PCM s16le 16 kHz mono de stdin (o archivo).
+1. **ingest**: lee PCM s16le 16 kHz mono de stdin (o archivo WAV).
 2. **normalize**: a float32 [-1,1]; valida formato según cabecera/flags.
-3. **segment**: acumula frames (config `frame_ms`, por defecto 2000 ms) y
-   aplica VAD simple (energía RMS vs umbral) para cortar en pausas.
-4. **runner**: envía frames al adaptador de modelo vía `stt-adapter/1`.
-5. **emit**: traduce eventos del adaptador a `stt-events/1` en stdout.
+3. **segment**: con `vad = true` (default) aplica un **endpointer** clásico
+   sobre hops de `hop_ms` (30 ms) y RMS vs `vad_rms_threshold`:
+   - una pausa es un run de silencio ≥ 3 hops (90 ms); dips más cortos son
+     cierres intra-palabra y no cortan;
+   - la pausa cierra el segmento en el último hop con voz una vez que el
+     segmento lleva `min_segment_ms` (3 s por defecto), para no fragmentar
+     frases cortas;
+   - una pausa **fuerte** (≥ 300 ms) corta siempre, aunque el segmento sea más
+     corto: evita que un segmento abierto antes de un silencio largo se trague
+     el silencio y el onset siguiente (regresión hallada en el experimento de
+     duración de la Sesión 005);
+   - el siguiente segmento arranca en el onset con **200 ms de preroll** (no
+     recorta consonantes suaves y nunca empieza con silencio);
+   - las regiones de pausa se emiten como segmentos `Speech=false`; el núcleo
+     las descarta (no hay llamadas al modelo ni eventos) y las contabiliza en
+     `skipped_s`;
+   - sin pausa (habla fluida) se fuerza un corte en el dip más profundo entre
+     `frame_ms` y `frame_ms + max_stretch_ms` (5 s + 300 ms por defecto).
+   Con `vad = false` se usa el framing fijo de Stage 1 (`frame_ms`).
+   Los segmentos siempre teselan la entrada: sin huecos ni solapes.
+4. **runner**: envía segmentos al adaptador de modelo vía `stt-adapter/1`.
+5. **emit**: traduce eventos del adaptador a `stt-events/1` en stdout. El
+   núcleo es la **autoridad de `t0`/`t1`**: re-sella cada `final`/`partial` con
+   su propia línea de tiempo del stream (tras un skip de VAD, los tiempos que
+   calcula el adaptador a partir de los bytes recibidos estarían comprimidos).
 
 ## 5. Configuración (`config/stt.toml`)
 
-Claves previstas (v1):
+El CLI carga `config/stt.toml` del cwd (o `--config FILE`); si no existe usa
+los defaults. Los flags del CLI pisan los valores del archivo. Claves v1:
+
 ```toml
-[audio]        rate = 16000, channels = 1, format = "s16le"
-[segment]      frame_ms = 2000, vad_rms_threshold = 0.01, min_speech_ms = 300
-[adapter]      cmd = "adapters/moonshine/stt-adapter-moonshine", args = ["--model", "var/models/moonshine-tiny"]
-[runner]       max_restarts = 3, restart_window_s = 60
-[output]       partials = false   # v1: solo finales por defecto
+[audio]   rate = 16000, channels = 1, format = "s16le"
+
+[segment]
+frame_ms = 5000            # cadencia objetivo / tope del force-cut
+vad = true                 # false = framing fijo de Stage 1
+vad_rms_threshold = 0.01   # umbral de voz (RMS normalizado a [-1,1])
+hop_ms = 30                # hop de análisis del VAD
+min_speech_ms = 0          # habla mínima para enviar un segmento (0 = cualquiera)
+min_segment_ms = 3000      # audio mínimo antes de que una pausa corte
+max_stretch_ms = 300       # cuánto puede estirarse frame_ms buscando un dip
+
+[adapter] cmd = "adapters/moonshine/stt-adapter-moonshine",
+          args = ["--model", "var/models/moonshine-tiny", "--threads", "4"]
+
+[runner]  max_restarts = 3, restart_window_s = 60
+[output]  partials = false # true: reenvía partials de adaptadores que los declaren
 ```
+
+Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
+`--vad-threshold`, `--adapter`, `--model`, `--partials`, `--max-restarts`.
 
 ## 6. Cache de modelos
 
@@ -105,6 +142,8 @@ Claves previstas (v1):
 | **D6** | 2026-10-22 | Streaming continuo con **segmentación en el núcleo** (no en el adaptador) | VAD dentro del adaptador (sherpa-onnx lo trae) | el núcleo controla latencia/cortes con independencia del modelo; el adaptador es "tonto" y solo transcribe |
 | **D7** | 2026-10-22 | ONNX Runtime con **prepacking de pesos desactivado** (`session.disable_prepacking=1`) | prepacking activo (301 MB RSS, RTF 0.087); optimizaciones desactivadas (221 MB, RTF 0.152) | 257 MB de pico (bajo el límite de 300 MB) con RTF 0.13, aún 2.7× por debajo del objetivo 0.35. El coste/beneficio se midió en este dispositivo (Sesión 003) |
 | **D8** | 2026-10-22 | Tokenizador de **decodificación propio** en C++ sobre `vocab.tsv` generado en el fetch | parsear `tokenizer.json` en runtime (requiere JSON/BPE); enlazar `tokenizers-cpp` (dependencia extra) | sin dependencias nuevas y arranque rápido; verificado contra `tokenizers` de HF con los ids reales del modelo (Sesión 003) |
+| **D9** | 2026-10-22 | **Endpointer** con VAD de energía: pausa ≥90 ms, `min_segment_ms = 3 s`, pausa fuerte ≥300 ms que corta siempre, preroll de 200 ms en el onset, skip de silencios (`Speech=false`) y force-cut en el dip más profundo con tope `frame_ms = 5 s` + 300 ms | framing fijo de 2 s (Stage 1, parte frases y genera texto vacío en silencios); segmentos de 1 s (pierden colas de frase); cap de 10 s (la inferencia sola puede superar 800 ms y la latencia crece) | cobertura por repetición 96.9 % vs 85.3 % sin VAD en el stream de 5 min; latencia steady-state máx 0.53 s / p95 0.50 s (Sesión 005). El experimento mostró que un segmento abierto antes de un silencio largo debía cortarse por pausa fuerte aunque no llegara al mínimo |
+| **D10** | 2026-10-22 | El adaptador Moonshine **reintenta una vez** un resultado vacío recortando 200 ms de cada borde (tope ¼ del audio) | dos reintentos de 100/200 ms (triple inferencia: latencia > 1.2 s en la cola); no reintentar (pierde frases en duraciones desafortunadas) | conserva el texto en los spans vacíos del modelo y mantiene la cola de latencia dentro de S3.2; el `final` del adaptador expone `infer_s` y `retries` como diagnóstico (el núcleo los ignora en v1). Los vacíos genuinos (silencio) siguen devolviendo `""` |
 
 ---
 

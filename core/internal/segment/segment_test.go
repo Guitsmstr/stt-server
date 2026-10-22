@@ -32,7 +32,7 @@ func speech(ms int, amp float64) []byte {
 func opts(vad bool) Options {
 	return Options{
 		Rate: rate, Channels: 1, FrameMs: 2000, HopMs: 30,
-		Threshold: 0.01, MinSpeechMs: 0,
+		Threshold: 0.01, MinSpeechMs: 0, MinSegmentMs: 1000,
 		MaxStretchMs: 300, VAD: vad,
 	}
 }
@@ -159,6 +159,29 @@ func TestVADStretch(t *testing.T) {
 	segs2 := collect(t, pcm2, opts(true))
 	if segs2[0].T1 < 2.15 || segs2[0].T1 > 2.21 {
 		t.Fatalf("dip cut at %v, want in [2.15, 2.21]", segs2[0].T1)
+	}
+}
+
+// A long silence always ends a segment, even before MinSegmentMs, so it cannot
+// swallow the gap and the next onset (Session 004 experiment regression).
+func TestVADStrongPauseBeatsMinSegment(t *testing.T) {
+	// 0.4 s speech, 0.5 s silence, then speech. MinSegmentMs=3 s would keep
+	// the first phrase open through the gap; the long pause must cut at 0.4 s.
+	o := opts(true)
+	o.MinSegmentMs = 3000
+	pcm := concat(speech(400, 0.2), silence(500), speech(2000, 0.2))
+	segs := collect(t, pcm, o)
+	if len(segs) < 2 {
+		t.Fatalf("expected >= 2 segments, got %d", len(segs))
+	}
+	if segs[0].T1 < 0.39 || segs[0].T1 > 0.43 {
+		t.Fatalf("first cut at %v, want at the 0.4 s pause", segs[0].T1)
+	}
+	if !segs[0].Speech || segs[1].Speech {
+		t.Fatalf("speech/pause marks: %+v", segs[:2])
+	}
+	if segs[2].T0 > 0.95 { // onset 0.9 s minus 200 ms preroll
+		t.Fatalf("next speech segment starts at %v, want <= 0.95", segs[2].T0)
 	}
 }
 

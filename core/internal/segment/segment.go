@@ -33,9 +33,16 @@ const prerollMs = 200
 // = 90 ms with the default hop. Shorter dips are intra-word closures.
 const minPauseHops = 3
 
-// minSegmentS is the minimum audio a segment carries before a pause may cut
-// it (1 s): shorter segments fragment phrases and degrade the model.
-const minSegmentS = 1
+// strongPauseMs is a silence run that always ends a segment, even before
+// MinSegmentMs of audio has accumulated. Without it, a segment that opened
+// just before a long inter-utterance gap swallows the gap and the next onset;
+// the MinSegmentMs gate then fires a few hundred ms into the new utterance and
+// drops its first word (observed in the Session 005 duration experiment).
+const strongPauseMs = 300
+
+// defaultMinSegmentMs is the fallback minimum segment length when Options
+// leaves MinSegmentMs unset (3 s, matching config/stt.toml).
+const defaultMinSegmentMs = 3000
 
 // Options tunes segmentation (mirrors config/stt.toml [segment]).
 type Options struct {
@@ -45,6 +52,7 @@ type Options struct {
 	HopMs        int     // VAD analysis hop
 	Threshold    float64 // speech threshold: RMS of samples normalized to [-1,1]
 	MinSpeechMs  int     // minimum speech for a segment to be marked Speech
+	MinSegmentMs int     // minimum audio before a pause may end a segment
 	MaxStretchMs int     // force-cut: how far past FrameMs fluent speech may run
 	VAD          bool
 }
@@ -70,9 +78,14 @@ func Segments(ctx context.Context, r io.Reader, o Options) <-chan Segment {
 		hopBytes := bytesPerSecond * o.HopMs / 1000
 		frameBytes := bytesPerSecond * o.FrameMs / 1000
 		stretchBytes := bytesPerSecond * o.MaxStretchMs / 1000
-		minSegBytes := bytesPerSecond * minSegmentS
+		minSegmentMs := o.MinSegmentMs
+		if minSegmentMs <= 0 {
+			minSegmentMs = defaultMinSegmentMs
+		}
+		minSegBytes := bytesPerSecond * minSegmentMs / 1000
 		prerollBytes := bytesPerSecond * prerollMs / 1000
 		minSpeechBytes := bytesPerSecond * o.MinSpeechMs / 1000
+		strongPauseHops := (strongPauseMs + o.HopMs - 1) / o.HopMs
 
 		var pending []byte   // audio not emitted yet
 		var hopRMS []float64 // RMS per analysis hop inside pending
@@ -225,12 +238,13 @@ func Segments(ctx context.Context, r io.Reader, o Options) <-chan Segment {
 							}
 						}
 						runLen++
-						if runLen >= minPauseHops && runStart >= minSegBytes {
-							// Real pause after a full segment: end it at the
-							// last loud hop; the pause becomes a skip region.
-							// Pauses that begin before the minimum never cut
-							// here (they would land mid-phrase in alternating
-							// short phrases); the force cap bounds those.
+						if runLen >= minPauseHops && (runStart >= minSegBytes || runLen >= strongPauseHops) {
+							// Real pause: end the segment at the last loud hop;
+							// the pause becomes a skip region. A long silence
+							// is a boundary even before MinSegmentMs, so it is
+							// not swallowed together with the next onset. Short
+							// pauses before the minimum do not cut (they would
+							// fragment phrases); the force cap bounds those.
 							if !emit(runStart, true) {
 								return
 							}

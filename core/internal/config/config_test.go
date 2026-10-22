@@ -12,9 +12,9 @@ func TestDefaults(t *testing.T) {
 	if c.Audio.Rate != 16000 || c.Audio.Channels != 1 || c.Audio.Format != "s16le" {
 		t.Fatalf("audio defaults: %+v", c.Audio)
 	}
-	if !c.Segment.VAD || c.Segment.FrameMs != 2000 || c.Segment.VADRMS != 0.01 ||
+	if !c.Segment.VAD || c.Segment.FrameMs != 5000 || c.Segment.VADRMS != 0.01 ||
 		c.Segment.HopMs != 30 || c.Segment.MinSpeechMs != 0 ||
-		c.Segment.MaxStretchMs != 300 {
+		c.Segment.MinSegmentMs != 3000 || c.Segment.MaxStretchMs != 300 {
 		t.Fatalf("segment defaults: %+v", c.Segment)
 	}
 	if c.Output.Partials {
@@ -50,6 +50,7 @@ vad = true
 vad_rms_threshold = 0.015
 hop_ms = 30
 min_speech_ms = 250
+min_segment_ms = 2500
 max_stretch_ms = 250
 
 [adapter]
@@ -72,7 +73,7 @@ partials = true
 		t.Fatal(err)
 	}
 	if c.Segment.VADRMS != 0.015 || c.Segment.MinSpeechMs != 250 ||
-		c.Segment.MaxStretchMs != 250 || !c.Segment.VAD {
+		c.Segment.MinSegmentMs != 2500 || c.Segment.MaxStretchMs != 250 || !c.Segment.VAD {
 		t.Fatalf("segment: %+v", c.Segment)
 	}
 	if c.Adapter.Cmd != "adapters/moonshine/stt-adapter-moonshine" {

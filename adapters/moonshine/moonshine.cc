@@ -45,9 +45,11 @@ constexpr double kChunkAudioS = 60.0; // Moonshine supports up to 64 s per call
 // of unlucky durations (verified against the Python reference). Retry empty
 // results on edge-trimmed audio: a different duration changes the encoder
 // behavior. Deterministically silent audio still stays empty. Trims are
-// capped at a quarter of the frame so at least half the audio is kept.
-constexpr size_t kRetryTrimS = 3;
-constexpr size_t kRetryTrimSamples = kRetryTrimS * 160; // 100 ms per step
+// capped at a quarter of the frame so at least half the audio is kept. One
+// retry at 200 ms is enough for the observed empty spans and keeps the tail
+// latency within the S3.2 budget (multiple retries triple inference time).
+constexpr size_t kRetryTrimS = 6;
+constexpr size_t kRetryTrimSamples = kRetryTrimS * 160; // 200 ms
 
 struct Options {
     std::string model_dir = "var/models/moonshine-tiny";
@@ -576,6 +578,7 @@ int main(int argc, char **argv) {
             const size_t n_samples = n / kBytesPerSample;
             std::string text;
             double infer_s = 0.0;
+            int retries = 0;
             if (n_samples >= static_cast<size_t>(kMinAudioS * kSampleRate)) {
                 const int16_t *pcm = reinterpret_cast<const int16_t *>(payload.data());
                 const size_t chunk = static_cast<size_t>(kChunkAudioS * kSampleRate);
@@ -592,6 +595,7 @@ int main(int argc, char **argv) {
                         part = transcribe(model, tok, pcm + off + cap, len - 2 * cap,
                                           o.max_tokens, &part_s);
                         infer_s += part_s;
+                        ++retries;
                     }
                     if (!part.empty()) {
                         if (!text.empty()) text.push_back(' ');
@@ -605,8 +609,10 @@ int main(int argc, char **argv) {
             const double rtf = dur > 0.0 ? infer_s / dur : 0.0;
             std::fputs("{\"type\":\"final\",\"text\":\"", stdout);
             json_escape(stdout, text);
-            std::fprintf(stdout, "\",\"frame\":%d,\"t0\":%.3f,\"t1\":%.3f,\"rtf\":%.3f}\n", frame,
-                         t0, t1, rtf);
+            std::fprintf(stdout,
+                         "\",\"frame\":%d,\"t0\":%.3f,\"t1\":%.3f,\"rtf\":%.3f,"
+                         "\"infer_s\":%.3f,\"retries\":%d}\n",
+                         frame, t0, t1, rtf, infer_s, retries);
             std::fflush(stdout);
 
             total_bytes += n;

@@ -2,7 +2,7 @@
 
 Entorno objetivo y de desarrollo: **este mismo dispositivo** (Alpine 3.24,
 musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
-(Sesión 001)**.
+(Sesión 005)**.
 
 ## 1. Toolchain
 
@@ -18,6 +18,7 @@ musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
 | `git` 2.54 | versionado | ✅ instalado | — |
 | `jq` | verificar NDJSON en pruebas | ✅ instalado | `apk add jq` |
 | `sox` | generar/convertir audio de prueba | ✅ instalado | — |
+| `python3` | harness de tests (streaming, cobertura, RSS) | ✅ instalado | solo herramientas de test; el runtime no usa Python |
 | `espeak` | TTS para generar audio de prueba | ✅ instalado | voz robótica; para demos reales usar voz humana |
 
 **Instalación pendiente en un solo comando** (ejecutar al inicio del Stage 1):
@@ -27,7 +28,9 @@ apk add cmake pkgconf onnxruntime-dev jq
 ✅ Ejecutado el 2026-10-22 (Sesión 002): toolchain completa y verificada
 (`g++` compila el adaptador eco con `-Wall -Wextra` sin warnings; `go vet` limpio).
 
-No se necesita: Python (validación previa únicamente), Rust, Node, GPU/NPU.
+El runtime (núcleo Go + adaptadores C++) **no usa Python**; Python 3 solo se
+usa en `tests/` (feeder, métricas de cobertura/latencia). No se necesita Rust,
+Node ni GPU/NPU.
 
 ## 2. Restricciones del hardware/dispositivo
 
@@ -69,6 +72,9 @@ echo 'int main(){return 0;}' > /tmp/t.cc && g++ /tmp/t.cc -o /tmp/t && /tmp/t &&
 | **Adaptador C++ (Stage 2, 2026-10-22)** | **RTF 0.13 (10 s), 0.20 peor frame de 2 s; objetivo ≤ 0.35** |
 | **RSS pico del adaptador + modelo (Stage 2)** | **262 968 kB ≈ 257 MiB; objetivo < 300 MB** |
 | Tiempo de carga del modelo (Stage 2) | ~2.4 s (threads=4) |
+| **Cobertura Stage 3 (5 min, VAD)** | **96.9 % por repetición** (sin VAD 85.3 %) |
+| **Latencia Stage 3 (steady-state)** | **máx 0.531 s, p95 0.497 s, media 0.446 s** |
 | RAM del stack Python validado | no medida; el objetivo C++ es RSS < 300 MB con modelo |
 
-Medición reproducible: `make test-stage2` (`tests/run-stage2-tests.sh`).
+Medición reproducible: `make test-stage2` y `make test-stage3`
+(`tests/run-stage2-tests.sh`, `tests/run-stage3-tests.sh`).
