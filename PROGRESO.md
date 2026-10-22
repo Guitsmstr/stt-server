@@ -160,6 +160,8 @@ Específicos:
 
 **Checks**: G1–G6 ✅. S4.1 ✅, S4.2 ✅ (TTS acústico), S4.3 ⬜ (demo humana pendiente), S4.4 ✅. Stage 4 queda **abierto** solo por S4.3.
 
+**Commit de implementación**: `7ef9530` (`mic: add Stage 4 capture pipeline (S4.3 demo pending)`). El cierre formal de Stage 4 se hará con la demo de voz humana.
+
 **Decisiones nuevas**: **D11** (captura en el lado Android con PulseAudio/OpenSL + `parec` por pipe; helper uid/SELinux; hotfolder no usado en v1), registrada en `docs/ARQUITECTURA.md §8`.
 
 **Siguiente paso**: grabar la demo de **voz humana** para S4.3:
