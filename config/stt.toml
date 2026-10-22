@@ -12,7 +12,7 @@ frame_ms = 5000            # target segment cadence / force-cut cap
 vad = true                 # energy-aware cuts + silence skip (false = fixed frames)
 vad_rms_threshold = 0.01   # speech RMS threshold, samples in [-1,1]
 hop_ms = 30                # VAD analysis hop
-min_speech_ms = 150        # segments need this much speech to be sent; 0 = any above-threshold audio counts (150: drop noise blips — user-reported hallucinated captions, Sesión 007)
+min_speech_ms = 100        # segments need this much speech to be sent; 0 = any above-threshold audio counts (100: keep "hey"/"hi" working while still dropping noise blips — Sesión 007)
 min_segment_ms = 3000      # a pause only ends a segment once it carries this much audio
 max_stretch_ms = 300       # max stretch past frame_ms to reach a dip (latency bound)
 

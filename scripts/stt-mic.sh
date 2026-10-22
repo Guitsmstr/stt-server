@@ -46,6 +46,26 @@ done
 # anchor the whole pipeline to the repo root.
 cd "$ROOT"
 
+# Single-instance takeover: an uncleanly-exited previous pipeline (lost
+# terminal, phone UI kill, timeout...) keeps capturing AND inferring in the
+# background — several stacked instances made the phone hot and starved the
+# CPU (Sesión 007).  Newest run wins: tell the old one to die (its own trap
+# cleans up its capture children) and wait briefly for it.
+PIDFILE="$ROOT/var/tmp/stage4/mic-session.pid"
+if [ -f "$PIDFILE" ]; then
+    OLDPID=$(cat "$PIDFILE" 2>/dev/null || true)
+    if [ -n "$OLDPID" ] && [ "$OLDPID" != "$$" ] && kill -0 "$OLDPID" 2>/dev/null; then
+        echo "stt-mic: taking over from stale session (pid $OLDPID)" >&2
+        kill -TERM "$OLDPID" 2>/dev/null || true
+        i=0
+        while kill -0 "$OLDPID" 2>/dev/null && [ "$i" -lt 30 ]; do
+            sleep 0.1; i=$((i + 1))
+        done
+        kill -KILL "$OLDPID" 2>/dev/null || true
+    fi
+fi
+echo $$ > "$PIDFILE"
+
 # --check/--list are capture-only shortcuts.
 case " $CAP_ARGS " in
     *" --check "*|*" --list "*)
@@ -64,8 +84,11 @@ cleanup() {
     [ -n "${STT_PID:-}" ] && kill "$STT_PID" 2>/dev/null || true
     [ -n "${CAP_PID:-}" ] && kill "$CAP_PID" 2>/dev/null || true
     rm -f "$FIFO"
+    if [ -f "$PIDFILE" ] && [ "$(cat "$PIDFILE" 2>/dev/null)" = "$$" ]; then
+        rm -f "$PIDFILE"
+    fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 # shellcheck disable=SC2086
 "$ROOT/scripts/termux-capture.sh" $CAP_ARGS > "$FIFO" &
