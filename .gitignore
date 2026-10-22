@@ -1,0 +1,14 @@
+# runtime local — no versionar
+var/
+
+# builds
+*.o
+*.so
+*.a
+core/cmd/stt/stt
+adapters/*/stt-adapter-*
+
+# basura
+*.wav.tmp
+/tmp/
+.cache/
