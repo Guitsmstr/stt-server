@@ -40,6 +40,12 @@ done
 
 [ -x "$STT" ] || { echo "error: $STT not found (run: make core)" >&2; exit 1; }
 
+# `stt` loads config/stt.toml and resolves the adapter command and relative
+# model paths against its CWD.  Running from another directory (e.g.
+# scripts/) would silently fall back to built-in defaults (echo adapter), so
+# anchor the whole pipeline to the repo root.
+cd "$ROOT"
+
 # --check/--list are capture-only shortcuts.
 case " $CAP_ARGS " in
     *" --check "*|*" --list "*)

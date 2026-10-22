@@ -132,6 +132,21 @@ demo de voz humana de S4.3.
 
 ## 4. Diagnóstico
 
+### 4.1 Tras un reinicio del teléfono
+
+Si el chroot se re-entra sin los mounts estándar, `/proc` y `/sys` quedan
+vacíos: `parec`/cpuinfo fallan y la detección de modo de captura no encuentra
+el lado Android (`cannot detect capture mode`). Restaurar como root:
+
+```sh
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+sh scripts/termux-mic-setup.sh   # idempotente
+```
+
+Verificado en la Sesión 007: el lado Termux sobrevive intacto al reinicio;
+solo hacen falta los mounts + setup.
+
 | Síntoma | Causa / acción |
 |---|---|
 | `mic busy or permission denied` | Permiso de micrófono denegado u otro proceso grabando (llamada, grabadora). Concede el permiso, cierra la otra app y repite el setup. |

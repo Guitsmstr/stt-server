@@ -73,7 +73,6 @@ hide_ind() {
 }
 end_line() { hide_ind; printf '%s\n' "— captions ended —"; }
 trap end_line EXIT
-
 render_stream() {
     while IFS= read -r ev; do
         [ -n "$ev" ] || continue
@@ -124,8 +123,25 @@ fi
 printf '%sstt-captions%s — speak; captions appear at pauses (Ctrl-C to stop)\n' "$B" "$R"
 [ -n "$LOG" ] && printf '%ssession log: %s%s\n' "$D" "$LOG" "$R"
 
+# The mic pipeline runs detached from this shell's stdout so that a TERM to
+# us (timeout, `q` wrappers...) can be forwarded: stt-mic.sh cleans up its
+# own capture children when it dies, so killing it is enough.
+mkdir -p "$ROOT/var/tmp/demo"
+FIFO_EV="$ROOT/var/tmp/demo/events.$$.fifo"
+mkfifo "$FIFO_EV"
+MIC_PID=
+cleanup_mic() {
+    if [ -n "${MIC_PID:-}" ]; then
+        kill "$MIC_PID" 2>/dev/null || true
+        wait "$MIC_PID" 2>/dev/null || true
+    fi
+    rm -f "$FIFO_EV"
+}
+trap 'cleanup_mic; exit 130' INT TERM
+
 RC=0
-set -o pipefail 2>/dev/null || true
-# shellcheck disable=SC2086
-sh "$MIC" "$@" | render_stream || RC=$?
+sh "$MIC" "$@" > "$FIFO_EV" &
+MIC_PID=$!
+render_stream < "$FIFO_EV" || RC=$?
+cleanup_mic
 exit "$RC"
