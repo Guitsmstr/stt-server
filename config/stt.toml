@@ -1,0 +1,24 @@
+# stt configuration (defaults).
+# NOTE (Stage 1): the CLI currently uses flags; wiring this file is planned
+# for Stage 3 (registered in PROGRESO.md). Keys mirror docs/ARQUITECTURA.md §5.
+
+[audio]
+rate = 16000
+channels = 1
+format = "s16le"
+
+[segment]
+frame_ms = 2000
+vad_rms_threshold = 0.01   # Stage 3
+min_speech_ms = 300        # Stage 3
+
+[adapter]
+cmd = "adapters/echo/stt-adapter-echo"   # Stage 2: adapters/moonshine/stt-adapter-moonshine
+args = ["--model", "var/models/moonshine-tiny"]
+
+[runner]
+max_restarts = 3
+restart_window_s = 60
+
+[output]
+partials = false
