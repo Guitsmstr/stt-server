@@ -63,6 +63,9 @@ sh scripts/termux-mic-setup.sh
 
 # hablar al teléfono -> texto NDJSON (Ctrl-C para terminar)
 ./scripts/stt-mic.sh
+
+# subtítulos en vivo en la terminal (el mismo pipeline, salida bonita)
+./scripts/stt-captions.sh
 ```
 
 El micrófono no es accesible por ALSA desde el chroot: la captura corre en el

@@ -87,6 +87,26 @@ Opciones útiles:
 ./scripts/stt-mic.sh --no-start-server      # usar un servidor ya existente
 ```
 
+### 3.1 Subtítulos en vivo en la terminal (`stt-captions`)
+
+El mismo pipeline (`stt-mic.sh`) con salida amigable: cada `final` se imprime
+como subtítulo `[MM:SS] texto`, con indicador de escucha y resumen al salir.
+La sesión NDJSON se guarda en `var/tmp/demo/` por defecto.
+
+```sh
+./scripts/stt-captions.sh                       # demo normal
+./scripts/stt-captions.sh --raw                 # NDJSON crudo (stt-events/1)
+./scripts/stt-captions.sh --no-log              # sin guardar sesión
+./scripts/stt-captions.sh -- --partials         # opts tras -- van a `stt stream`
+./scripts/stt-captions.sh --render-only < var/tmp/demo/captions-XXXX.ndjson
+```
+
+`--render-only` repite una sesión guardada como subtítulos (y sirve de banco
+de pruebas del renderizador sin micrófono). Los subtítulos aparecen **por
+segmento, en las pausas** (~0.5–1.3 s tras el fin del segmento; Moonshine solo
+emite `final`, ver S3.5): un adaptador que declare capability `partial`
+(p. ej. whisper.cpp en Stage 5) permitiría texto interim.
+
 Captura cruda, sin `stt` (útil para depurar o para otro consumidor):
 
 ```sh

@@ -152,9 +152,10 @@ Generales G1–G6: al ejecutar
 - Orden de ejecución: primero cerrar Stage 4 (**S4.3** demo de voz humana), luego Stage 5 desde **S5.3**.
 - **Cierre de Stage 4 (S4.3, en esta misma sesión)**: demo de voz humana con `tests/live_probe.py` sin `--speak-cmd`. Tres ventanas: (1) 90 s sin el usuario presente → 1 final de habla ambiental ("I know I can use it", latencia 1.233 s; `live_s43_human_missed.json`); (2) 90 s con la voz del usuario → capturada y transcripta tras **salvado** del PCM (el probe murió antes de escribir el informe: `timeout 120` era justo para `--duration 90` con arranque lento de PA; lección de harness: **timeout ≥ 2.5× la duración**) → `"They were tried. Ever-failing. No matter try again, fail again. Three bits."` en t=21.0–27.8 s (`live_s43_human_events.ndjson`); (3) 60 s limpia (`timeout 300`) → **informe completo**: 3 finales, latencia máx **1.269 s**, `"I will try it with my buffet No matter try again, figure the game Feel better."` (`live_s43_human_final.json`). Frase dicha: *"Ever tried. Ever failed. No matter. Try again. Fail again. Fail better."* La tiny de Moonshine (inglés) degrada más con acento humano que con TTS, pero la frase es reconocible — es justo lo que S4.3 quería demostrar.
 - Incidencia menor: `pkill -f stt_mic_4715` se auto-mató otra vez (patrón sin el truco `[x]`, mismo pielec de la Sesión 006). Sin daños; relanzado limpio.
+- **Demo de terminal (`scripts/stt-captions.sh`, nuevo)**: subtítulos en vivo sobre el mismo pipeline de Stage 4 — envuelve `stt-mic.sh` y renderiza `stt-events/1`: `[MM:SS] texto` por `final`, indicador `● listening…`, `partial`/`error`/`eof` con formato propio; sesión NDJSON en `var/tmp/demo/` (replay con `--render-only`). Verificado con replay del eventos de S4.3 + eventos sintéticos (2 bugs de separación de campos con `@tsv`/tab detectados y corregidos: separador US `\u001f` + filtro de finales vacíos). Docs: README, OPERACION §3.1.
 - **Stage 4 queda CERRADO** (S4.1–S4.4 ✅). Sin cambios de código del núcleo en toda la sesión.
 
-**Archivos tocados**: `docs/PLAN.md`, `docs/ARQUITECTURA.md`, `README.md`, `PROGRESO.md`.
+**Archivos tocados**: `docs/PLAN.md`, `docs/ARQUITECTURA.md`, `README.md`, `docs/OPERACION.md`, `scripts/stt-captions.sh`, `PROGRESO.md`.
 
 **Checks**: Stage 4 — S4.3 ✅ (evidencia arriba); S5.1 ✅, S5.2 ✅ (definición); S5.3–S5.8 al ejecutar.
 
