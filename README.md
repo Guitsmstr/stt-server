@@ -12,7 +12,7 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 
 | | |
 |---|---|
-| **Estado** | Stage 0 — Fundación (ver [`PROGRESO.md`](PROGRESO.md)) |
+| **Estado** | Stage 2 — adaptador Moonshine ✅ (ver [`PROGRESO.md`](PROGRESO.md)) |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -33,14 +33,26 @@ stt/
 ├── README.md, PROGRESO.md      ← entrada y estado
 ├── docs/                       ← plan, reglas, arquitectura, contratos, prerequisitos
 ├── core/                       ← módulo Go del núcleo (cmd/, internal/)
-├── adapters/                   ← adaptadores de modelo (C++, uno por directorio)
+├── adapters/                   ← adaptadores de modelo (echo, moonshine — C++)
 ├── config/                     ← stt.toml
-├── scripts/                    ← fetch-models, captura Termux (Stage 4)
-├── tests/                      ← pruebas de protocolo y audio
+├── scripts/                    ← fetch-model.sh, captura Termux (Stage 4)
+├── tests/                      ← pruebas de protocolo, audio real (assets/)
 └── var/                        ← runtime local: modelos, tmp (NO versionado)
 ```
 
-## 🚀 Cómo continuar el proyecto en una nueva sesión
+## 🚀 Puesta en marcha rápida
+
+```sh
+make core adapters          # núcleo Go + adaptadores C++
+make models                 # descarga idempotente en var/models/ (~109 MB)
+make test                   # tests Go + smoke Stage 1 (echo)
+make test-stage2            # S2.1–S2.5 (Moonshine real, RTF y RSS)
+
+./var/bin/stt once --adapter adapters/moonshine/stt-adapter-moonshine \
+    --model var/models/moonshine-tiny --frame-ms 10000 tests/assets/beckett.wav
+```
+
+## 🧭 Cómo continuar el proyecto en una nueva sesión
 
 1. Leer `PROGRESO.md` (stage actual + siguiente paso).
 2. Seguir las reglas de `docs/REGLAS.md` (reglas R3 y R9 en particular).

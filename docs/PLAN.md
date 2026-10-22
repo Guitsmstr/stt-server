@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 0 — Fundación |
-| **Última actualización** | 2026-10-22 (Sesión 001) |
+| **Estado actual** | Stage 2 — ✅ cerrado (ver PROGRESO.md) |
+| **Última actualización** | 2026-10-22 (Sesión 003) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
 ---

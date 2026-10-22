@@ -13,8 +13,8 @@ vad_rms_threshold = 0.01   # Stage 3
 min_speech_ms = 300        # Stage 3
 
 [adapter]
-cmd = "adapters/echo/stt-adapter-echo"   # Stage 2: adapters/moonshine/stt-adapter-moonshine
-args = ["--model", "var/models/moonshine-tiny"]
+cmd = "adapters/moonshine/stt-adapter-moonshine"
+args = ["--model", "var/models/moonshine-tiny", "--threads", "4"]
 
 [runner]
 max_restarts = 3

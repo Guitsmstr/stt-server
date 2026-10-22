@@ -148,6 +148,6 @@ func runPipeline(c commonFlags, source func(context.Context) <-chan protocol.Fra
 		_ = out.Event(protocol.Event{Type: "error", Code: "pipeline", Message: err.Error(), Fatal: true})
 		return 1
 	}
-	_ = out.Event(protocol.Event{Type: "eof", Frames: stats.FramesSent, AudioS: stats.AudioS})
+	_ = out.Event(protocol.Event{Type: "eof", Frames: stats.FramesSent, AudioS: stats.AudioS, RSSKB: stats.AdapterRSS})
 	return 0
 }

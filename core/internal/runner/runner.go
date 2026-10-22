@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,6 +35,7 @@ type Stats struct {
 	LostFrames int
 	Restarts   int
 	Model      string
+	AdapterRSS int64 // adapter peak RSS from its "bye" event (kB), best-effort
 }
 
 // Runner executes one adapter at a time and restarts it on crash.
@@ -138,6 +140,12 @@ func (r *Runner) start(ctx context.Context) (*session, error) {
 	return s, nil
 }
 
+// fatalAdapterError marks an error reported by the adapter as fatal: the
+// runner must not restart (e.g. unsupported audio, unloadable model).
+type fatalAdapterError struct{ msg string }
+
+func (e *fatalAdapterError) Error() string { return e.msg }
+
 // waitReady blocks until the adapter announces itself (or fails).
 func (s *session) waitReady(d time.Duration) (protocol.Event, error) {
 	t := time.NewTimer(d)
@@ -152,7 +160,7 @@ func (s *session) waitReady(d time.Duration) (protocol.Event, error) {
 				return ev, nil
 			}
 			if ev.Type == "error" && ev.Fatal {
-				return protocol.Event{}, fmt.Errorf("adapter fatal error before ready: %s", ev.Message)
+				return protocol.Event{}, &fatalAdapterError{msg: "adapter fatal error before ready: " + ev.Message}
 			}
 		case <-t.C:
 			return protocol.Event{}, fmt.Errorf("adapter ready timeout after %s", d)
@@ -197,6 +205,11 @@ func (r *Runner) Run(ctx context.Context, src <-chan protocol.Frame, sink chan<-
 			sess.close()
 			if ctx.Err() != nil {
 				return stats, ctx.Err()
+			}
+			var fatal *fatalAdapterError
+			if errors.As(err, &fatal) {
+				send(protocol.Event{Type: "error", Code: "adapter_dead", Message: err.Error(), Fatal: true})
+				return stats, fmt.Errorf("runner: %w", err)
 			}
 			if r.canRestart(&restarts) {
 				mu.Lock()
@@ -249,6 +262,9 @@ func (r *Runner) Run(ctx context.Context, src <-chan protocol.Frame, sink chan<-
 		for ev := range sess.events {
 			if ev.Type == "bye" {
 				complete = true
+				if ev.RSSKB > 0 {
+					stats.AdapterRSS = ev.RSSKB
+				}
 				break
 			}
 			if ev.Type == "final" && ev.Model == "" {

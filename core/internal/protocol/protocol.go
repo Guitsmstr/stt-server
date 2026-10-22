@@ -47,6 +47,7 @@ type Event struct {
 	Audio        *AudioFormat `json:"audio,omitempty"`
 	Frames       int          `json:"frames,omitempty"`
 	AudioS       float64      `json:"audio_s,omitempty"`
+	RSSKB        int64        `json:"rss_kb,omitempty"`
 }
 
 // Frame is one unit of PCM audio sent nucleus -> adapter.

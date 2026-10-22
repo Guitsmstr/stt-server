@@ -41,13 +41,15 @@ No se necesita: Python (validación previa únicamente), Rust, Node, GPU/NPU.
 
 ## 3. Assets de modelos
 
-| Modelo | Oranz | Tamaño | Estado |
+| Modelo | Origen | Tamaño | Estado |
 |---|---|---|---|
-| Moonshine tiny (ONNX merged: `encoder_model.onnx` + `decoder_model_merged.onnx`) | HF `UsefulSensors/moonshine`, `onnx/merged/tiny/float` | ~50 MB | ✅ descargado y probado (Sesión 001, caché de HF) |
-| Moonshine base (opcional, mejor calidad) | HF `UsefulSensors/moonshine`, `onnx/merged/base/float` | ~100 MB | pendiente (Stage 2) |
+| Moonshine tiny (ONNX merged: `encoder_model.onnx` + `decoder_model_merged.onnx`) | HF `moonshine-ai/moonshine` (antes `UsefulSensors/moonshine`), `onnx/merged/tiny/float` | 30.9 + 78.2 MB | ✅ en `var/models/moonshine-tiny` (Sesión 003) |
+| Tokenizer (para decodificar ids → texto) | HF `moonshine-ai/moonshine`, `ctranslate2/tiny/tokenizer.json` | 2.0 MB | ✅ cacheado + `vocab.tsv` generado (32000 entradas) |
+| Moonshine base (opcional, mejor calidad) | HF `onnx/merged/base/float` | ~100 MB | pendiente (no soportado por el fetch v1) |
 
-Destino de cache del proyecto: `var/models/` vía `scripts/fetch-model.sh`
-(idempotente). El núcleo **nunca** descarga modelos (ARQUITECTURA §6).
+Destino de cache del proyecto: `var/models/moonshine-tiny/` vía
+`scripts/fetch-model.sh` (idempotente, verifica sha256; `--offline` para
+comprobar la caché sin red). El núcleo **nunca** descarga modelos.
 
 ## 4. Verificación rápida del entorno
 
@@ -58,10 +60,15 @@ apk info -e onnxruntime onnxruntime-dev cmake jq   # todos marcados tras instala
 echo 'int main(){return 0;}' > /tmp/t.cc && g++ /tmp/t.cc -o /tmp/t && /tmp/t && echo "toolchain OK"
 ```
 
-## 5. Resultados de referencia (Sesión 001, para comparar futuras mediciones)
+## 5. Resultados de referencia (para comparar futuras mediciones)
 
 | Métrica | Valor |
 |---|---|
-| Moonshine tiny vía ORT Python (baseline no definitivo) | **5.3× tiempo real** (987 ms para 5.3 s de audio) en CPU del Helio G85 |
-| Objetivo del adaptador C++ (Stage 2) | RTF ≤ 0.35 (≈3× tiempo real o mejor) |
+| Moonshine tiny vía ORT Python (baseline Sesión 001) | 5.3× tiempo real (987 ms para 5.3 s de audio) en CPU del Helio G85 |
+| Moonshine tiny vía ORT Python, `beckett.wav` 9.96 s (Sesión 003) | RTF 0.095 |
+| **Adaptador C++ (Stage 2, 2026-10-22)** | **RTF 0.13 (10 s), 0.20 peor frame de 2 s; objetivo ≤ 0.35** |
+| **RSS pico del adaptador + modelo (Stage 2)** | **262 968 kB ≈ 257 MiB; objetivo < 300 MB** |
+| Tiempo de carga del modelo (Stage 2) | ~2.4 s (threads=4) |
 | RAM del stack Python validado | no medida; el objetivo C++ es RSS < 300 MB con modelo |
+
+Medición reproducible: `make test-stage2` (`tests/run-stage2-tests.sh`).

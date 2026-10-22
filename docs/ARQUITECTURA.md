@@ -75,8 +75,14 @@ Claves previstas (v1):
 ## 6. Cache de modelos
 
 - Ubicación: `var/models/` (no versionada).
-- Descarga idempotente por script (`scripts/fetch-models.sh`): si el archivo
-  existe con checksum correcto, no se descarga. El núcleo nunca descarga.
+- Descarga idempotente por script (`scripts/fetch-model.sh`): verifica sha256 de
+  cada archivo y no descarga si ya está correcto (`--offline` falla si falta
+  algo). El núcleo nunca descarga.
+- El script también genera `vocab.tsv` (`id<TAB>token`, 32000 líneas) a partir
+  de `tokenizer.json` con `jq`; el adaptador C++ solo necesita ese mapa para
+  decodificar tokens a texto (no requiere merges BPE ni una librería JSON).
+- Moonshine tiny ocupa 109 MB en caché (encoder 30.9 MB + decoder 78.2 MB +
+  tokenizer 2.0 MB).
 
 ## 7. Manejo de errores
 
@@ -97,6 +103,8 @@ Claves previstas (v1):
 | **D4** | 2026-10-22 | Primer adaptador real: **Moonshine vía ONNX Runtime C API** | whisper.cpp primero (sería multi-idioma); Python ya validado | Moonshine tiny es el más rápido validado en este hardware (5.3× tiempo real con ORT); whisper.cpp queda como adaptador #2 |
 | **D5** | 2026-10-22 | Audio de trabajo: **PCM s16le, 16 kHz, mono**; framing del protocolo: **uint32 LE de longitud + payload** | WAV por frame (sobrecabecera), newline-delimited (ambiguo con binario) | simple y sin ambigüedad; el núcleo normaliza desde otras entradas |
 | **D6** | 2026-10-22 | Streaming continuo con **segmentación en el núcleo** (no en el adaptador) | VAD dentro del adaptador (sherpa-onnx lo trae) | el núcleo controla latencia/cortes con independencia del modelo; el adaptador es "tonto" y solo transcribe |
+| **D7** | 2026-10-22 | ONNX Runtime con **prepacking de pesos desactivado** (`session.disable_prepacking=1`) | prepacking activo (301 MB RSS, RTF 0.087); optimizaciones desactivadas (221 MB, RTF 0.152) | 257 MB de pico (bajo el límite de 300 MB) con RTF 0.13, aún 2.7× por debajo del objetivo 0.35. El coste/beneficio se midió en este dispositivo (Sesión 003) |
+| **D8** | 2026-10-22 | Tokenizador de **decodificación propio** en C++ sobre `vocab.tsv` generado en el fetch | parsear `tokenizer.json` en runtime (requiere JSON/BPE); enlazar `tokenizers-cpp` (dependencia extra) | sin dependencias nuevas y arranque rápido; verificado contra `tokenizers` de HF con los ids reales del modelo (Sesión 003) |
 
 ---
 

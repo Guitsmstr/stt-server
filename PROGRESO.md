@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 1 — ✅ CERRADO** (listo para Stage 2) |
-| **Última actualización** | 2026-10-22 (Sesión 002) |
-| **Siguiente paso** | **Stage 2**: implementar `adapters/moonshine/stt-adapter-moonshine` (C++ vs ONNX Runtime) + `scripts/fetch-model.sh`; checks S2.1–S2.5 |
+| **Stage actual** | **Stage 2 — ✅ CERRADO** (listo para Stage 3) |
+| **Última actualización** | 2026-10-22 (Sesión 003) |
+| **Siguiente paso** | **Stage 3**: segmentación/VAD en el núcleo (cortes por silencio, `partial`/`final`), checks S3.1–S3.5 |
 
 ## Estado de stages
 
@@ -16,7 +16,7 @@
 |---|---|---|
 | 0 | Fundación (docs + estructura) | ✅ cerrado (aprobado por el usuario, S0.5) |
 | 1 | Contratos + harness Go + adaptador eco | ✅ cerrado |
-| 2 | Adaptador C++ Moonshine (primer motor) | ⬜ no iniciado |
+| 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ⬜ no iniciado |
 | 4 | Entrada de audio real (Android/Termux) | ⬜ no iniciado |
 | 5 | Expansión (opcional) | ⬜ no iniciado |
@@ -66,19 +66,19 @@ Específicos:
 ### Stage 2 — Adaptador C++ Moonshine
 
 Generales:
-- [ ] **G1** Build limpio (Go + adaptador C++)
-- [ ] **G2** Checks específicos con evidencia
-- [ ] **G3** Docs sincronizadas
-- [ ] **G4** PROGRESO actualizado
-- [ ] **G5** Sin regresiones (Stage 1: harness sigue funcionando)
-- [ ] **G6** Limpieza
+- [x] **G1** Build limpio (Go + adaptador C++)
+- [x] **G2** Checks específicos con evidencia (Sesión 003)
+- [x] **G3** Docs sincronizadas (ARQUITECTURA D7/D8, CONTRATOS §2.3/§3/§6, PREREQUISITOS, README, config)
+- [x] **G4** PROGRESO actualizado (bitácora Sesión 003)
+- [x] **G5** Sin regresiones (Stage 1: `make test` → 4/4 Go + smoke OK)
+- [x] **G6** Limpieza (modelos y artefactos solo en `var/`; binarios gitignored)
 
 Específicos:
-- [ ] **S2.1** `stt-adapter-moonshine` compila contra `libonnxruntime` del sistema
-- [ ] **S2.2** Transcribe archivo de prueba → NDJSON correcto y texto coherente
-- [ ] **S2.3** **RTF ≤ 0.35** con moonshine-tiny en este teléfono (baseline Python: 0.19)
-- [ ] **S2.4** RSS del adaptador + modelo **< 300 MB**
-- [ ] **S2.5** Cache `var/models/` idempotente (2ª ejecución sin red)
+- [x] **S2.1** `stt-adapter-moonshine` compila contra `libonnxruntime` del sistema — `make -C adapters/moonshine` sin warnings; `ldd` → `libonnxruntime.so.1 => /usr/lib/libonnxruntime.so.1`
+- [x] **S2.2** Transcribe archivo de prueba → NDJSON correcto y texto coherente — `tests/assets/beckett.wav` (10 s): `"Ever tried ever failed, no matter try again, fail again, fail better."` (idéntico a la referencia Python)
+- [x] **S2.3** **RTF ≤ 0.35** — 10 s: 0.13; peor frame de 2 s: 0.20 (objetivo ≤ 0.35)
+- [x] **S2.4** RSS del adaptador + modelo **< 300 MB** — 262 968 kB (≈257 MiB) pico reportado en `eof.rss_kb`
+- [x] **S2.5** Cache `var/models/` idempotente (2ª ejecución sin red) — `fetch-model.sh --offline` 2×: 4/4 `cached:`, salida idéntica
 
 ### Stage 3 — Streaming continuo
 
@@ -122,6 +122,46 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 003 — 2026-10-22
+**Alcance**: ejecución completa del Stage 2 — adaptador Moonshine real (C++ + ONNX Runtime) y caché de modelos.
+
+**Hechos (evidencia)**:
+- `scripts/fetch-model.sh` (idempotente, sha256 fijado): descarga encoder 30.9 MB + decoder 78.2 MB + tokenizer 2.0 MB desde HF `moonshine-ai/moonshine` a `var/models/moonshine-tiny/` y genera `vocab.tsv` (32000 líneas) con `jq`. Segunda ejecución con `--offline`: 4/4 `cached:` y sin red.
+- `adapters/moonshine/moonshine.cc` (~600 líneas, ORT C++ API): handshake, frames uint32 LE, encoder + decoder merged con KV cache, decodificador de tokens propio (▁→espacio, `<0xNN>`→byte), chunking >64 s, `ready`/`final`/`bye` y `rss_kb` de diagnóstico.
+- **S2.1** `make -C adapters/moonshine` limpio (`-Wall -Wextra`); `ldd` enlaza `libonnxruntime.so.1 => /usr/lib/libonnxruntime.so.1`.
+- **S2.2** `tests/assets/beckett.wav` (9.96 s, habla real) → `"Ever tried ever failed, no matter try again, fail again, fail better."` — **idéntico al baseline Python** (verificado en la misma sesión con `moonshine_onnx`).
+- **S2.3** RTF 0.13 (frame de 10 s) y peor frame de 2 s 0.20; objetivo ≤ 0.35. `--threads 4` (1 hilo daba 0.155).
+- **S2.4** RSS pico 262 968 kB (≈257 MiB) — se reporta por `bye`/`eof` (`rss_kb`).
+- **S2.5** `fetch-model.sh --offline` ×2 → salida idéntica, 0 descargas.
+- **G5** `make test`: `go test ./...` 4/4 PASS + smoke Stage 1 ALL OK.
+
+**Bugs/decisiones encontrados y corregidos durante la verificación**:
+1. `Ort::TypeInfo` temporal: `GetInputTypeInfo(...).GetTensorTypeAndShapeInfo()` dejaba una vista colgante (shape vacío) → se retiene el `TypeInfo`.
+2. La API C++ de `Session::Run` exige nombres de salida explícitos (`nullptr,0` ⇒ "At least one output should be requested") — a diferencia de `InferenceSession.run(None, ...)` en Python.
+3. **Memoria**: con prepacking de pesos el pico era 301 MB (justo en el límite) → `session.disable_prepacking=1` baja a 257 MB con RTF 0.13 (decisión **D7**).
+4. El runner reiniciaba el adaptador ante un `error` con `fatal:true` antes de `ready` (p. ej. audio estéreo) → ahora es fatal inmediato y sin bucle (corregido en `internal/runner`).
+5. `emit` omitía la clave `text` en finales vacíos (`omitempty`) → `final` ahora siempre lleva `text` (puede ser `""`), aclarado en CONTRATOS §3.
+- **Decisión D8**: decodificador de tokens propio sobre `vocab.tsv` (sin parsear `tokenizer.json` ni añadir dependencias); validado contra `tokenizers` de HF con los ids reales del modelo.
+
+**Observación O2 (para Stage 3)**: con frames de 2 s sin VAD los cortes parten frases
+("Ever tried, ever tried." / "The failed. No matter.") y los frames de silencio dan
+texto vacío. El Stage 3 debe segmentar por pausas antes de enviar al adaptador.
+
+**Archivos tocados**: `adapters/moonshine/{moonshine.cc,Makefile}`,
+`scripts/fetch-model.sh`, `tests/run-stage2-tests.sh`, `tests/assets/beckett.wav`,
+`core/internal/{runner/runner.go,protocol/protocol.go,emit/emit.go}`,
+`core/cmd/stt/main.go`, `Makefile`, `config/stt.toml`, `README.md`,
+`docs/{ARQUITECTURA,CONTRATOS,PREREQUISITOS,PLAN}.md`, `PROGRESO.md`.
+
+**Checks**: Stage 2 — G1..G6 ✅, S2.1–S2.5 ✅ (evidencia en `tests/run-stage2-tests.sh`).
+
+**Decisiones nuevas**: D7 (prepacking off), D8 (tokenizador propio + vocab.tsv).
+
+**Siguiente paso**: **Stage 3** — segmentación por VAD en el núcleo
+(`core/internal/segment`: ventanas + umbral RMS, corte por silencio ≥ 2 s),
+eventos `partial` según config, y checks S3.1–S3.5 (5+ min de stream, latencia
+≤ 800 ms, RSS estable 30 min).
 
 ### Sesión 002 — 2026-10-22
 **Alcance**: cierre del Stage 0 (aprobación del plan) y ejecución completa del Stage 1.

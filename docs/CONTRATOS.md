@@ -58,7 +58,7 @@ del stream puede ser más corto (frames de longitud arbitraria permitidos).
 {"type":"partial","text":"hello wor","frame":7}
 {"type":"final","text":"hello world","frame":7,"t0":12.4,"t1":14.4,"rtf":0.21}
 {"type":"error","code":"model","message":"...","fatal":true}
-{"type":"bye"}
+{"type":"bye","frames":1,"bytes":64000,"audio_s":2.0,"infer_s":0.24,"rss_kb":257000}
 ```
 
 | Campo | Significado |
@@ -67,6 +67,10 @@ del stream puede ser más corto (frames de longitud arbitraria permitidos).
 | `t0`,`t1` | segundos de audio acumulado al inicio/fin del segmento transrito |
 | `rtf` | tiempo de inferencia / duración de audio (menor = más rápido) |
 | `partial` | opcional; el núcleo puede descartarlo según config |
+| `rss_kb` | opcional en `bye`: RSS máximo del adaptador (diagnóstico, kB) |
+
+Los consumidores (el núcleo) **deben ignorar campos desconocidos**; los
+adaptadores pueden añadir diagnóstico en `bye` sin cambiar de versión.
 
 ### 2.4 Ciclo de vida
 1. Núcleo lanza adaptador con args (`--model <ruta>` mínimo).
@@ -89,13 +93,17 @@ del stream puede ser más corto (frames de longitud arbitraria permitidos).
 {"type":"start","audio":{"rate":16000,"channels":1,"format":"s16le"}}
 {"type":"final","text":"hello world","t0":12.4,"t1":14.4,"model":"moonshine-tiny","rtf":0.21}
 {"type":"error","code":"...","message":"...","fatal":false}
-{"type":"eof","frames":152,"audio_s":304.0}
+{"type":"eof","frames":152,"audio_s":304.0,"rss_kb":257000}
 ```
 
 Reglas:
 - Solo se emiten `final` por defecto (`[output] partials = true` habilita
   `partial`).
-- `text` es UTF-8, sin `\n` embebidos (se sustituyen por espacio).
+- `text` es UTF-8, sin `\n` embebidos (se sustituyen por espacio). En `final`
+  la clave **siempre está presente**; puede ser `""` (silencio o frame sin
+  habla).
+- `rss_kb` en `eof` es opcional: RSS máximo reportado por el adaptador
+  (diagnóstico).
 - El orden es temporal; no hay eventos tras `eof`.
 - **Los consumidores deben ignorar campos desconocidos** (los adaptadores o
   versiones futuras pueden añadir campos extra).
@@ -152,6 +160,28 @@ $ STT_ECHO_CRASH_AFTER=2 ./var/bin/stt stream --adapter adapters/echo/stt-adapte
 Nota v1: los frames escritos pero no procesados al morir el adaptador se
 pierden (política ARQUITECTURA §3); por eso `frames` (enviados) puede ser
 mayor que el número de eventos `final`.
+
+## 6. Ejemplo de sesión real con Moonshine (Stage 2, 2026-10-22)
+
+Audio real de prueba (`tests/assets/beckett.wav`, 9.96 s) transcrito en un
+único frame de 10 s:
+
+```sh
+$ ./var/bin/stt once --adapter adapters/moonshine/stt-adapter-moonshine \
+      --model var/models/moonshine-tiny --frame-ms 10000 tests/assets/beckett.wav
+{"type":"start","audio":{"rate":16000,"channels":1,"format":"s16le"}}
+{"type":"final","text":"Ever tried ever failed, no matter try again, fail again, fail better.","t1":9.963,"rtf":0.129,"model":"moonshine-tiny"}
+{"type":"eof","frames":1,"audio_s":9.963375000000001,"rss_kb":262968}
+```
+
+Con frames de 2 s (segmentación todavía sin VAD, Stage 3) el corte parte
+frases; los frames sin habla producen `"text":""`:
+
+```json
+{"type":"final","text":"Ever tried, ever tried.","t1":2,"rtf":0.183,"model":"moonshine-tiny"}
+{"type":"final","text":"The failed. No matter.","frame":1,"t0":2,"t1":4,"rtf":0.2,"model":"moonshine-tiny"}
+{"type":"final","text":"","frame":2,"t0":4,"t1":6,"rtf":0.08,"model":"moonshine-tiny"}
+```
 
 ---
 
