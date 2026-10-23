@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 5 — 🟦 definido (Sesión 007); ejecución desde S5.3** |
-| **Última actualización** | 2026-10-22 (Sesión 007) |
-| **Siguiente paso** | **S5.3** — `stt-adapter-sherpa`: compilar sherpa-onnx desde fuente contra `libonnxruntime` del sistema y verificar handshake `stt-adapter/1` con capability `partial` (definición en PLAN §Stage 5, decisión D14) |
+| **Stage actual** | **Stage 5 — 🟦 en ejecución (Sesión 008)** |
+| **Última actualización** | 2026-10-23 (Sesión 008) |
+| **Siguiente paso** | **S5.6** — extender `scripts/fetch-model.sh` a los modelos zipformer (`var/models/sherpa-zipformer-{es,en}/`, idempotente; en = streaming-zipformer-en-2023-06-26 int8 ya descargado a mano; es = kroko-2025-08-06 float) y luego **S5.4** transcripción es/en |
 
 ## Estado de stages
 
@@ -117,7 +117,7 @@ Específicos:
 - [x] **S4.3** Demo real de **voz humana** registrada en bitácora (con transcripción) — Sesión 007: `tests/live_probe.py` sin `--speak-cmd`, ventana de 60 s: **3 finales de voz humana, latencia máx 1.269 s** (≤ 3 s), transcripción `"I will try it with my buffet No matter try again, figure the game Feel better."` ≈ frase dicha ("Ever tried. Ever failed. No matter. Try again. Fail again. Fail better."); informe `var/tmp/stage4/live_s43_human_final.json`. Corroborado con 2ª captura (89.5 s): `"They were tried. Ever-failing. No matter try again, fail again. Three bits."` en t=21.0–27.8 s (`live_s43_human_events.ndjson`)
 - [x] **S4.4** Micrófono bloqueado/ocupado → error claro, sin bloquear el núcleo — sin servidor rc=1 con mensaje; fallo OpenSL inyectado rc=1 con guía; `stt-mic.sh` rc=1 y el núcleo emite `eof` (sin hang); sin servidores PA residuales
 
-### Stage 5 — Expansión (whisper.cpp + salida remota)
+### Stage 5 — Expansión (sherpa-onnx + salida remota)
 
 Alcance **definido y aprobado por el usuario** en la Sesión 007: **A** adaptador
 `stt-adapter-sherpa` (streaming zipformer es/en, con **parciales palabra a
@@ -132,6 +132,7 @@ Específicos:
 - [x] **S5.1** Alcance definido y registrado en `docs/PLAN.md` — aprobado por el usuario (Sesión 007): A (segundo motor; whisper.cpp → **sherpa-onnx**, D14) + B (`--out`); sesiones múltiples fuera de alcance
 - [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.9 en esta sección
 - [ ] **S5.3** `stt-adapter-sherpa` compila sherpa-onnx desde fuente contra `libonnxruntime` del sistema (`-Wall -Wextra`; prebuilt glibc no sirve en musl) y completa el handshake `stt-adapter/1` declarando capabilities `final` + `partial`
+- [x] **S5.3** Compilación + handshake **OK** (Sesión 008): sherpa-onnx **v1.13.8** clonado en `var/tmp/sherpa-onnx` y compilado desde fuente (estático, cmake Release) contra `libonnxruntime` 1.24.4 del sistema; parche local `-include cstdint` (GCC 15/musl deja de heredar `<cstdint>` transitivamente; ~500 TUs afectados) vía `scripts/fetch-sherpa.sh` (idempotente, `--offline`). Adaptador `adapters/sherpa/` (`sherpa.cc` + Makefile, `-Wall -Wextra` sin warnings, binario estático 5 MB + ORT del sistema): auto-detección de archivos del modelo (prefiere int8), `--model/--encoder/--decoder/--joiner/--tokens/--threads/--no-endpoint/--rule{1,2,3}`. Handshake verificado: `ready` con `"capabilities":["final","partial"]`, `error` fatales por header/audio/modelo ausente, `bye` con `rss_kb`. E2E con `tests/feed_stream.py` (`--speed 2 --partials`): 6 finales + 12 parciales palabra a palabra a través del núcleo, texto Beckett correcto ("Ever tried. Ever failed. No matter..."); RSS adaptador 136 MB; RTF crudo 0.21–0.48 en frames de 2 s (limitado; S5.5 mide en condiciones del check con frames de 5 s)
 - [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS)
 - [ ] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames de 5 s)
 - [ ] **S5.6** Cache de modelos idempotente en `var/models/sherpa-zipformer-{es,en}/` (2ª corrida con `--offline`)
@@ -144,6 +145,26 @@ Generales G1–G6: al ejecutar
 ---
 
 ## Bitácora
+
+### Sesión 008 — 2026-10-23
+**Alcance**: inicio de la ejecución del Stage 5 — **S5.3** completo (`stt-adapter-sherpa` + build sherpa-onnx desde fuente + handshake `stt-adapter/1` con `partial`). Nada pendiente de la Sesión 007 (árbol limpio al abrir).
+
+**Hechos**:
+- **sherpa-onnx v1.13.8 desde fuente** (D14): clon shallow en `var/tmp/sherpa-onnx` (no versionado), cmake Release estático con build mínimo (sin websocket/TTS/portaudio/tests/binaries), contra `libonnxruntime` 1.24.4 de los repos Alpine (detectado automáticamente por `SHERPA_ONNX_USE_PRE_INSTALLED_ONNXRUNTIME_IF_AVAILABLE`). Build `-j2` ≈ 20 min (RAM-bound). **Parche**: GCC 15 (musl) ya no hereda `<cstdint>` transitivamente ⇒ `-include cstdint` global en `CMAKE_CXX_FLAGS` (`cmake/onnxruntime.cmake` falla sin él: `base64-decode.cc`, `endpoint.h`, ~500 TUs). Script idempotente `scripts/fetch-sherpa.sh` (clone+cmake+make; 2ª corrida con `--offline` sin red).
+- **`adapters/sherpa/stt-adapter-sherpa`** (`sherpa.cc` ~500 líneas + Makefile, `-Wall -Wextra` limpio; 5 MB estático + `libonnxruntime.so` del sistema): C API de sherpa (`SherpaOnnxCreateOnlineRecognizer` + streaming transducer), greedy_search, endpoint rules por defecto (2.4/1.2/20 s, desactivables), auto-detección de encoder/decoder/joiner/tokens en el dir del modelo (prefiere int8). Cadencia igual que moonshine (un `final` por frame) + **`partial` palabra a palabra** en cada cambio de texto interim; en endpoint emite el enunciado completo como `final` y resetea. En EOF hace flush (`InputFinished` + drain) y `bye` con `rss_kb`.
+- **Bug cazado en pruebas**: primera versión leía los bytes s16 directo al buffer float sin convertir (features basura ⇒ texto vacío); corregido a `f32 = s16/32768`.
+- **Handshake + e2e verificados**: `ready` con `"capabilities":["final","partial"]`; errores fatales limpios (sin header, rate ≠ 16k, modelo ausente); con `tests/feed_stream.py --speed 2 --partials`: **6 finales + 12 parciales** a través del núcleo con re-stamp de t0/t1, texto Beckett correcto; RSS adaptador **136 MB** (< 300 MB); RTF crudo 0.21–0.48 en frames de 2 s (el check S5.5 medirá con frames de 5 s).
+- Modelo EN cacheado a mano en `var/models/sherpa-zipformer-en/` (streaming-zipformer-en-2023-06-26, encoder int8 chunk-16-left-64, 71 MB) — S5.6 lo formaliza junto con el ES (kroko-2025-08-06, float 155 MB, único zipformer ES streaming del ecosistema sherpa-onnx; sin variante int8 publicada).
+- `Makefile` raíz: `adapters` y `clean` incluyen sherpa; nuevo `test-stage5` (script aún por escribir en S5.4+); `models` llama también a `fetch-sherpa.sh`.
+- **Regresión stages 1–4**: go vet/test + stages 1–3 ✅. Stage 4 **rojo por entorno, no por código**: el teléfono está con Android UI activa (surfaceflinger/composer quemando CPU, load ~34, cores limitados a 1.8 GHz por el gobernador) y los checks sensibles a rendimiento fallan al filo: S2.3 RTF 2 s frames worst 0.369–0.37 (> 0.35) y S4.2 latencia 12.1 s (> 3 s), con valores correctos entre medio (RTF 0.21–0.31; S2.3 llegó a pasar en la 2ª corrida). La ruta moonshine no cambió ni un byte (8510928); re-verificar stage 4 con el teléfono en reposo antes de cerrar **S5.7** (que exige regresión 1–4 en verde).
+
+**Decisiones nuevas**: ninguna (D14 ya registrada; consumo de D14 puro).
+
+**Archivos tocados**: `adapters/sherpa/{sherpa.cc,Makefile}` (nuevos), `scripts/fetch-sherpa.sh` (nuevo), `Makefile`, `PROGRESO.md`; no versionados: `var/tmp/sherpa-onnx` (build), `var/models/sherpa-zipformer-en`.
+
+**Checks**: S5.3 ✅ (evidencia arriba); regresión 1–3 ✅, 4 ⚠️ entorno (ver arriba).
+
+**Siguiente paso**: **S5.6** (formalizar cache de modelos es/en en `scripts/fetch-model.sh`) y luego **S5.4** (transcripción es/en con cobertura fuzzy ≥ 80 %).
 
 ### Sesión 007 — 2026-10-22
 **Alcance**: definición del alcance del Stage 5 (Expansión) y registro en docs. Sin cambios de código.

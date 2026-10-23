@@ -12,7 +12,7 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 
 | | |
 |---|---|
-| **Estado** | Stage 4 — entrada de audio real ✅ cerrado; Stage 5 definido: sherpa-onnx (streaming, parciales) + salida remota (ver [`PROGRESO.md`](PROGRESO.md)) |
+| **Estado** | Stage 4 — entrada de audio real ✅ cerrado; Stage 5 en ejecución (Sesión 008): sherpa-onnx (streaming, parciales; S5.3 ✅) + salida remota pendiente (ver [`PROGRESO.md`](PROGRESO.md)) |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -34,9 +34,9 @@ stt/
 ├── README.md, PROGRESO.md      ← entrada y estado
 ├── docs/                       ← plan, reglas, arquitectura, contratos, prerequisitos
 ├── core/                       ← módulo Go del núcleo (cmd/, internal/)
-├── adapters/                   ← adaptadores de modelo (echo, moonshine — C++)
+├── adapters/                   ← adaptadores de modelo (echo, moonshine, sherpa — C++)
 ├── config/                     ← stt.toml
-├── scripts/                    ← fetch-model, setup/captura de micrófono (Stage 4)
+├── scripts/                    ← fetch-model, fetch-sherpa, setup/captura de micrófono
 ├── tests/                      ← pruebas de protocolo, audio real (assets/)
 └── var/                        ← runtime local: modelos, tmp (NO versionado)
 ```
