@@ -54,7 +54,7 @@ audio (PCM) ──→ [ stt ] ──→ texto (NDJSON en stdout)
 | Capa | Tecnología | Justificación |
 |---|---|---|
 | Núcleo + CLI | **Go** (1.26) | binario estático, goroutines para streaming, `os/exec`+pipes para adaptadores |
-| Adaptadores de modelo | **C++** (gcc 15 + ONNX Runtime / whisper.cpp) | los motores STT viven en C++; mínima RAM y arranque instantáneo |
+| Adaptadores de modelo | **C++** (gcc 15 + ONNX Runtime / sherpa-onnx) | los motores STT viven en C++; mínima RAM y arranque instantáneo |
 | Salida | NDJSON por `stdout` | consumible desde cualquier lenguaje, línea a línea |
 | Runtime objetivo | Alpine Linux (musl, aarch64) en chroot Android (Samsung, MT6769/Helio G85, 3.6 GB RAM) | entorno ya validado |
 
@@ -118,36 +118,44 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   TTS acústico; S4.3 cerrado en la Sesión 007 con voz humana: 3 finales,
   latencia máx 1.269 s.)
 
-### Stage 5 — Expansión (definido y aprobado por el usuario en la Sesión 007)
+### Stage 5 — Expansión (definido en la Sesión 007; motor cambiado a sherpa-onnx por decisión del usuario)
 - **Objetivo**: ampliar el componente en dos direcciones sin romper contratos:
-  **(a) multilingüe** — segundo motor real `stt-adapter-whisper` en C++ contra
-  `whisper.cpp-libs` (paquete del sistema Alpine), modelo `whisper-tiny`
-  cacheado en `var/models/`; **(b) salida remota** — `stt stream --out
-  tcp://host:puerto | unix://ruta` transporta los mismos eventos
-  `stt-events/1` con fan-out a N consumidores; stdout sigue siendo el modo
-  base (D13 extiende D3 de forma compatible). Moonshine continúa como motor
-  por defecto; la selección de motor usa el `--adapter`/`[adapter] cmd` ya
-  existente (sin cambios de núcleo para el motor).
-- **Entregables**: `adapters/whisper/` (C++ + Makefile), `scripts/fetch-model.sh`
-  extendido a `var/models/whisper-tiny/` (idempotente), `--out` + fan-out en
-  `core/`, `tests/run-stage5-tests.sh`, script de servicio opcional, docs
-  (CONTRATOS transporte, ARQUITECTURA D12/D13, OPERACION, README, config).
-- **Objetivos whisper**: RTF ≤ 0.5 y RSS pico < 350 MB (más laxos que
-  Moonshine 0.35/300 MB: el encoder multi-idioma de whisper tiny es más
-  pesado en este hardware).
+  **(a) multilingüe + streaming real** — segundo motor `stt-adapter-sherpa` en
+  C++ contra **sherpa-onnx** (streaming zipformer int8, español e inglés):
+  sin paquete Alpine y con prebuilt glibc (no sirven en musl), se compila
+  desde fuente contra la `libonnxruntime` del sistema; modelos cacheados en
+  `var/models/`; emite **parciales palabra a palabra** (capability `partial`,
+  cableada desde S3.5) → subtítulos verdaderamente en vivo. **(b) salida
+  remota** — `stt stream --out tcp://host:puerto` o `unix://ruta` transporta
+  los mismos eventos `stt-events/1` con fan-out a N consumidores; stdout
+  sigue siendo el modo base (D13 extiende D3). Moonshine continúa como motor
+  por defecto; selección por `--adapter`/`[adapter] cmd` (sin cambios de
+  núcleo para el motor).
+- **Entregables**: `adapters/sherpa/` (C++ + Makefile; build de sherpa-onnx),
+  `scripts/fetch-model.sh` extendido a los modelos zipformer (idempotente),
+  `--out` + fan-out en `core/`, partials end-to-end (config +
+  `stt-captions`), `tests/run-stage5-tests.sh`, script de servicio opcional,
+  docs (CONTRATOS transporte, ARQUITECTURA D12/D13/D14, OPERACION, README,
+  config).
+- **Objetivos sherpa**: RTF ≤ 0.35 y RSS pico < 300 MB (streaming int8 es
+  más ligero que whisper en este hardware; más estricto que los 0.5/350 MB
+  planteados para whisper).
 - **Fuera de alcance de este stage**: sesiones múltiples concurrentes
-  (posible Stage 6), empaquetado/distribución.
-- **Criterio de salida**: el mismo audio transcrito en español e inglés por
-  whisper con moonshine y las regresiones de stages 1–4 en verde; 2 clientes
-  simultáneos reciben los mismos eventos por socket con sobrecoste de
-  latencia ≤ 10 ms y sin que una desconexión afecte al pipeline.
+  (posible Stage 6), whisper.cpp (queda como opción futura de máxima
+  precisión), empaquetado/distribución.
+- **Criterio de salida**: el mismo audio transcrito en español e inglés con
+  **parciales visibles mientras se habla** (demo karaoke en `stt-captions`),
+  moonshine y las regresiones de stages 1–4 en verde; 2 clientes simultáneos
+  reciben los mismos eventos por socket con sobrecoste de latencia ≤ 10 ms y
+  sin que una desconexión afecte al pipeline.
 
 ## 6. Riesgos
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
 | HAL de Android bloquea el micro desde el chroot (ya observado) | Alto (Stage 4) | captura en el lado Android (PulseAudio/OpenSL) + pipe PCM; helper uid/SELinux (D11) |
-| Solo inglés (Moonshine) | Medio | arquitectura de adaptadores lo permite: whisper.cpp u otro en Stage 5 |
+| Solo inglés (Moonshine) | Medio | arquitectura de adaptadores lo permite: sherpa-onnx (zipformer es/en) en Stage 5 |
+| sherpa-onnx no está empaquetado en Alpine (prebuilt = glibc) | Bajo (Stage 5) | build desde fuente contra `libonnxruntime` del sistema — dependencia ya probada en musl con el adaptador moonshine |
 | RAM limitada (3.6 GB, ~1.7 libres) | Medio | adaptadores C++, modelos tiny/base, cuantización int8 |
 | Quirks de musl | Bajo | ya resuelto para ORT Python; C++ usa `libonnxruntime` de los repos Alpine |
 | Descargas de modelos (red) | Bajo | cache idempotente en `var/models`; verificado HF accesible |

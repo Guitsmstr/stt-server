@@ -12,7 +12,7 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 
 | | |
 |---|---|
-| **Estado** | Stage 4 — entrada de audio real ✅ cerrado; Stage 5 definido: whisper.cpp + salida remota (ver [`PROGRESO.md`](PROGRESO.md)) |
+| **Estado** | Stage 4 — entrada de audio real ✅ cerrado; Stage 5 definido: sherpa-onnx (streaming, parciales) + salida remota (ver [`PROGRESO.md`](PROGRESO.md)) |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |

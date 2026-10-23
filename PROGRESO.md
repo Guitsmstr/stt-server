@@ -8,7 +8,7 @@
 |---|---|
 | **Stage actual** | **Stage 5 — 🟦 definido (Sesión 007); ejecución desde S5.3** |
 | **Última actualización** | 2026-10-22 (Sesión 007) |
-| **Siguiente paso** | **S5.3** — `stt-adapter-whisper`: compilar contra `whisper.cpp-libs` del sistema y verificar handshake `stt-adapter/1` (definición en PLAN §Stage 5) |
+| **Siguiente paso** | **S5.3** — `stt-adapter-sherpa`: compilar sherpa-onnx desde fuente contra `libonnxruntime` del sistema y verificar handshake `stt-adapter/1` con capability `partial` (definición en PLAN §Stage 5, decisión D14) |
 
 ## Estado de stages
 
@@ -19,7 +19,7 @@
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
-| 5 | Expansión (whisper.cpp + salida remota) | 🟦 definido (Sesión 007); se ejecuta tras cerrar Stage 4 |
+| 5 | Expansión (sherpa-onnx + salida remota) | 🟦 definido (Sesión 007; motor cambiado a sherpa-onnx por el usuario — D14); se ejecuta tras cerrar Stage 4 |
 
 ---
 
@@ -120,20 +120,24 @@ Específicos:
 ### Stage 5 — Expansión (whisper.cpp + salida remota)
 
 Alcance **definido y aprobado por el usuario** en la Sesión 007: **A** adaptador
-`stt-adapter-whisper` (multi-idioma) + **B** salida remota `--out` con fan-out.
-Definición completa en [`docs/PLAN.md`](docs/PLAN.md) §Stage 5; decisiones
-**D12/D13** en [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) §8. Sesiones
-múltiples quedan fuera de alcance (posible Stage 6).
+`stt-adapter-sherpa` (streaming zipformer es/en, con **parciales palabra a
+palabra**; sustituye a whisper.cpp por decisión del usuario — **D14**) + **B**
+salida remota `--out` con fan-out. Definición completa en
+[`docs/PLAN.md`](docs/PLAN.md) §Stage 5; decisiones **D12/D13/D14** en
+[`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) §8. Sesiones múltiples quedan
+fuera de alcance (posible Stage 6); whisper.cpp queda como opción futura de
+máxima precisión.
 
 Específicos:
-- [x] **S5.1** Alcance definido y registrado en `docs/PLAN.md` — aprobado por el usuario (Sesión 007): A (whisper.cpp) + B (`--out`); sesiones múltiples fuera de alcance
-- [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.8 en esta sección
-- [ ] **S5.3** `stt-adapter-whisper` compila contra `whisper.cpp-libs` del sistema (`-Wall -Wextra`) y completa el handshake `stt-adapter/1` (`ready` + capabilities)
+- [x] **S5.1** Alcance definido y registrado en `docs/PLAN.md` — aprobado por el usuario (Sesión 007): A (segundo motor; whisper.cpp → **sherpa-onnx**, D14) + B (`--out`); sesiones múltiples fuera de alcance
+- [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.9 en esta sección
+- [ ] **S5.3** `stt-adapter-sherpa` compila sherpa-onnx desde fuente contra `libonnxruntime` del sistema (`-Wall -Wextra`; prebuilt glibc no sirve en musl) y completa el handshake `stt-adapter/1` declarando capabilities `final` + `partial`
 - [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS)
-- [ ] **S5.5** RTF ≤ 0.5 y RSS pico < 350 MB (frames de 5 s y 10 s)
-- [ ] **S5.6** Cache de modelo idempotente en `var/models/whisper-tiny/` (2ª corrida con `--offline`)
+- [ ] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames de 5 s)
+- [ ] **S5.6** Cache de modelos idempotente en `var/models/sherpa-zipformer-{es,en}/` (2ª corrida con `--offline`)
 - [ ] **S5.7** Selección de motor por config/flag; moonshine sigue siendo el default; regresión de stages 1–4 en verde
 - [ ] **S5.8** `--out tcp://…` (y `unix://…`): 2 clientes simultáneos reciben los mismos eventos NDJSON; sobrecoste de latencia ≤ 10 ms; la desconexión de un cliente no afecta al pipeline ni al otro
+- [ ] **S5.9** Partials end-to-end (demo karaoke): con `[output] partials = true`, `stt-captions` muestra texto interim **mientras se habla** y el `final` final confirma el segmento (cierra lo dejado pendiente en S3.5)
 
 Generales G1–G6: al ejecutar
 
@@ -158,6 +162,7 @@ Generales G1–G6: al ejecutar
 - **Ajuste VAD (reporte del usuario)**: al decir una palabra aparecían líneas extra con texto inventado ("Hey you" junto a "hello"). Causa: `min_speech_ms = 0` mandaba ruido corto (aliento/clicks) como segmento propio y el decoder lo alucinaba. Cambio: `min_speech_ms = 150` en `config/stt.toml` (una sola variable; si sigue el ruido, siguiente palanca `vad_rms_threshold` 0.01→0.015). Smoke `stt once` con `beckett.wav`: los 6 tramos completos, sin pérdidas. Trade-off documentado: palabras reales muy cortas y suaves (< 150 ms) podrían descartarse.
 - **Sobrecarga de recursos (reporte del usuario: teléfono caliente, arranques lentos, "hey/hi" sin reconocer)**: encontradas **6 pipelines completas apiladas en vivo** (6×captions→mic→stt→moonshine→parec sobre `stt_mic_4713`): cada sonido del ambiente disparaba 6 VAD + 6 inferencias ×4 hilos (load avg 48, 40+ min de CPU por adaptador). Fixes: (a) **takeover de instancia única** en `stt-mic.sh` (pidfile `var/tmp/stage4/mic-session.pid`; la sesión nueva mata a la vieja — verificado: `taking over from stale session`, 0 procesos tras salir, pidfile auto-limpio en salidas normales); (b) `HUP` añadido al trap de limpieza; (c) `min_speech_ms` 150→100 ("hey"/"hi" ≈150–250 ms quedaban en el borde del gate). Smoke: beckett completo. Tras matar la pila: 0 procesos residuales.
 - **Nota /proc**: el mount de /proc volvió a perderse una vez y se remontó; verificación posterior: persistente. (Sospecha: namespaces de las sesiones muertas; vigilar.)
+- **Cambio de motor del Stage 5 (decisión del usuario)**: whisper.cpp → **sherpa-onnx** (streaming zipformer int8, es/en): parciales palabra a palabra nativos (la capability `partial` cableada en S3.5 por fin se usa), menor latencia/CPU, español. Sin paquete Alpine y prebuilt glibc ⇒ build desde fuente contra `libonnxruntime` del sistema (dependencia ya probada en musl). Objetivos ajustados: RTF ≤ 0.35, RSS < 300 MB. Registrado como **D14** (sustituye a D12 como elección del Stage 5; whisper.cpp queda opción futura de máxima precisión). Checks S5.1–S5.9 actualizados (nuevo S5.9: partials end-to-end / demo karaoke).
 - **Stage 4 queda CERRADO** (S4.1–S4.4 ✅). Sin cambios de código del núcleo en toda la sesión.
 
 **Archivos tocados**: `docs/PLAN.md`, `docs/ARQUITECTURA.md`, `README.md`, `docs/OPERACION.md`, `scripts/stt-captions.sh`, `scripts/stt-mic.sh`, `PROGRESO.md`.
