@@ -16,6 +16,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -25,13 +26,14 @@ import (
 
 	"stt/internal/config"
 	"stt/internal/emit"
+	"stt/internal/fanout"
 	"stt/internal/protocol"
 	"stt/internal/runner"
 	"stt/internal/segment"
 	"stt/internal/wav"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 const defaultConfigPath = "config/stt.toml"
 
@@ -51,6 +53,7 @@ Options (stream/once; defaults come from config/stt.toml):
   --vad BOOL            energy-aware cuts and silence skip (default true; --vad=false = fixed frames)
   --vad-threshold X     speech RMS threshold (samples normalized to [-1,1])
   --partials            forward adapter "partial" events to stdout
+  --out ADDR            fan out the same NDJSON to clients: tcp://host:port or unix:///path
   --max-restarts N      adapter restart budget`)
 }
 
@@ -74,6 +77,7 @@ type resolved struct {
 	vadF          bool
 	thresholdF    float64
 	partialsF     bool
+	outF          string
 }
 
 // parseOptions loads the config (honoring an early --config flag) and parses
@@ -122,6 +126,7 @@ func parseOptions(name string, args []string) (resolved, error) {
 	fs.BoolVar(&r.vadF, "vad", cfg.Segment.VAD, "energy-aware cuts and silence skip")
 	fs.Float64Var(&r.thresholdF, "vad-threshold", cfg.Segment.VADRMS, "speech RMS threshold")
 	fs.BoolVar(&r.partialsF, "partials", cfg.Output.Partials, "forward adapter partial events")
+	fs.StringVar(&r.outF, "out", cfg.Output.Listen, "fan-out listener (tcp://host:port or unix:///path)")
 	if err := fs.Parse(args); err != nil {
 		return r, err
 	}
@@ -133,6 +138,7 @@ func parseOptions(name string, args []string) (resolved, error) {
 	r.cfg.Segment.VAD = r.vadF
 	r.cfg.Segment.VADRMS = r.thresholdF
 	r.cfg.Output.Partials = r.partialsF
+	r.cfg.Output.Listen = r.outF
 	r.adapter = r.adapterF
 	r.model = r.modelF
 	r.frameMs = r.frameMsF
@@ -276,7 +282,23 @@ func runPipeline(o resolved, source func(context.Context) <-chan segment.Segment
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	out := emit.New(os.Stdout)
+	// Optional remote fan-out (D13): the same stt-events/1 lines that go to
+	// stdout are broadcast to every connected client. Listen before the start
+	// event so a client that connects immediately never misses it.
+	var eventSink io.Writer = os.Stdout
+	if o.cfg.Output.Listen != "" {
+		hub, err := fanout.Listen(o.cfg.Output.Listen)
+		if err != nil {
+			_ = emit.New(os.Stdout).Event(protocol.Event{
+				Type: "error", Code: "output_listen", Message: err.Error(), Fatal: true,
+			})
+			return 1
+		}
+		defer hub.Close()
+		// Hub first: a slow stdout consumer must not add latency to sockets.
+		eventSink = io.MultiWriter(hub, os.Stdout)
+	}
+	out := emit.New(eventSink)
 	hdr := protocol.Header{
 		Protocol: protocol.Version,
 		Audio:    protocol.AudioFormat{Rate: o.rate, Channels: o.channels, Format: "s16le"},

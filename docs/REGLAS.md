@@ -57,6 +57,19 @@ stage es largo), mensaje en inglés, formato: `<area>: <what>` (ej.
 
 ---
 
+## R11. Coste de las suites de prueba
+
+- La ruta normal de cada cambio ejecuta las suites del stage afectado y las
+  regresiones rápidas (`make test`, `test-stage2`, `test-stage3` con soak de
+  10 min a 6×, `test-stage4`/`test-stage5` cuando aplique).
+- El **soak completo de 30 min** (`make test-soak`, `STT_SOAK=1`) es un gate de
+  release o una herramienta para investigar fugas, no un check de cada cambio:
+  a 6× tarda ~5 min de pared y no simula 30 min de reloj real. Su valor es la
+  contabilidad de frames y la estabilidad de RSS sobre ~1000 segmentos.
+- Si se reduce una corrida por defecto, el resultado completo anterior se
+  conserva en `PROGRESO.md` y se documenta el alcance nuevo (no se borra la
+  evidencia del check ya cerrado).
+
 ## Checks GENERALES de todo stage (G1–G6)
 
 Se aplican a **cada** stage, además de sus checks específicos:

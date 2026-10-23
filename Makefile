@@ -1,4 +1,4 @@
-.PHONY: all core adapters models test test-stage2 test-stage3 test-stage4 test-stage5 clean
+.PHONY: all core adapters models test test-stage2 test-stage3 test-soak test-stage4 test-stage5 clean
 
 all: core adapters
 
@@ -26,6 +26,9 @@ test-stage2: all
 
 test-stage3: all
 	sh tests/run-stage3-tests.sh
+
+test-soak: all
+	STT_SOAK=1 sh tests/run-stage3-tests.sh
 
 test-stage4: all
 	sh tests/run-stage4-tests.sh

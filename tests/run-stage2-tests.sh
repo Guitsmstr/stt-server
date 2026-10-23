@@ -49,7 +49,9 @@ ok=$(awk -v r="$rtf" 'BEGIN{print (r<=0.35)?"yes":"no"}')
 [ "$ok" = yes ] || fail "10 s frame RTF $rtf > 0.35"
 echo "10 s frame: rtf=$rtf"
 
-out2=$("$STT" once --adapter "$ADAPTER" --model "$MODEL" --frame-ms 2000 "$WAV")
+# --vad=false keeps the check's stated 2 s frames: with Stage 3 VAD enabled the
+# segmenter sends 0.7-1.3 s segments and per-frame overhead inflates RTF.
+out2=$("$STT" once --adapter "$ADAPTER" --model "$MODEL" --vad=false --frame-ms 2000 "$WAV")
 echo "$out2" | jq -c 'select(.type=="final") | {frame,rtf,text}'
 worst=$(echo "$out2" | jq -s '[.[] | select(.type=="final") | .rtf] | max')
 ok=$(awk -v r="$worst" 'BEGIN{print (r<=0.35)?"yes":"no"}')

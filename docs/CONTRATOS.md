@@ -106,9 +106,9 @@ adaptadores pueden añadir diagnóstico en `bye` sin cambiar de versión.
 `0` = correcto (tras `bye`). `≠0` = fallo; el núcleo reporta `error` con
 `fatal:true` si agota reinicios.
 
-## 3. `stt-events/1` — salida del núcleo (stdout)
+## 3. `stt-events/1` — salida del núcleo (stdout + fan-out opcional)
 
-Única salida del componente. NDJSON, una línea por evento, **solo texto**:
+Salida base del componente: NDJSON, una línea por evento, **solo texto**:
 
 ```json
 {"type":"start","audio":{"rate":16000,"channels":1,"format":"s16le"}}
@@ -138,6 +138,39 @@ Reglas:
 - **Los consumidores deben ignorar campos desconocidos** (los adaptadores o
   versiones futuras pueden añadir campos extra).
 - Consumidores: usar `jq`, `stdbuf`, o cualquier parser NDJSON.
+
+### 3.1 Salida remota (fan-out, Stage 5 / D13)
+
+`stt stream --out tcp://host:puerto` (o `--out unix:///ruta/absoluta`, o la
+clave `[output] listen` del config) añade un **listener** además de stdout.
+Cada cliente conectado recibe **las mismas líneas `stt-events/1`, en el mismo
+orden**, que se escriben por stdout; stdout sigue siendo el modo base.
+
+Reglas del fan-out:
+
+- El listener se abre **antes** del evento `start`. Un cliente que conecta
+  después recibe primero la cabecera `start` (replay) y luego los eventos
+  vivos.
+- Al terminar el pipeline, el `eof` se entrega a los clientes antes de cerrar
+  las conexiones (drenaje acotado).
+- Cada cliente tiene una cola acotada. Un cliente lento se desconecta **solo a
+  él**; una desconexión (o un cliente que deja de leer) no bloquea el pipeline
+  ni afecta a los demás clientes.
+- `unix://` exige ruta absoluta; al cerrar se borra el socket. Un socket
+  huérfano se sustituye solo si el fichero es realmente un socket.
+- Si el listener no puede abrirse, el núcleo emite
+  `{"type":"error","code":"output_listen","fatal":true}` y sale con código 1.
+- Sobrecoste de latencia objetivo: **p95 ≤ 10 ms** respecto a stdout en
+  loopback (S5.8; el máximo puede tener jitter de scheduler). `STT_FANOUT_DEBUG=1`
+  imprime trazas de clientes/colas por stderr.
+
+Los clientes son **receive-only** (no envían datos al núcleo). Ejemplo:
+
+```sh
+./var/bin/stt stream --out tcp://127.0.0.1:4714 < audio.pcm
+# en otra terminal:
+nc 127.0.0.1 4714 | jq -r 'select(.type=="final") | .text'
+```
 
 ## 4. Contrato de entrada (adaptadores de entrada)
 

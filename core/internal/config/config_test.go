@@ -20,6 +20,9 @@ func TestDefaults(t *testing.T) {
 	if c.Output.Partials {
 		t.Fatal("partials must default to false")
 	}
+	if c.Output.Listen != "" {
+		t.Fatalf("fan-out listener must default to empty, got %q", c.Output.Listen)
+	}
 }
 
 func TestLoadMissingFile(t *testing.T) {
@@ -63,6 +66,7 @@ restart_window_s = 30
 
 [output]
 partials = true
+listen = "tcp://127.0.0.1:4714"
 `
 	path := filepath.Join(t.TempDir(), "stt.toml")
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
@@ -93,6 +97,9 @@ partials = true
 	}
 	if !c.Output.Partials {
 		t.Fatal("partials: want true")
+	}
+	if c.Output.Listen != "tcp://127.0.0.1:4714" {
+		t.Fatalf("listen = %q", c.Output.Listen)
 	}
 }
 

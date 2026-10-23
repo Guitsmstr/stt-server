@@ -111,6 +111,30 @@ emite `final`, ver S3.5). Con `--engine sherpa` el adaptador declara `partial`
 y se muestra texto interim mientras se habla; el `partial` es el tramo nuevo
 del segmento (no repite los finales anteriores).
 
+### 3.2 Salida remota (`--out`, fan-out)
+
+`stt stream` puede difundir los mismos eventos NDJSON a varios clientes por
+TCP o Unix, además de stdout (CONTRATOS §3.1):
+
+```sh
+# listener TCP local
+./var/bin/stt stream --out tcp://127.0.0.1:4714 < audio.pcm
+nc 127.0.0.1 4714 | jq -r 'select(.type=="final") | .text'
+
+# socket Unix (ruta absoluta; se borra al salir)
+./var/bin/stt stream --out unix:///tmp/stt.sock < audio.pcm
+socat - UNIX-CONNECT:/tmp/stt.sock
+
+# con el micrófono: la captura va al núcleo y el texto a N consumidores
+./scripts/stt-mic.sh -- --out tcp://127.0.0.1:4714
+```
+
+Puede fijarse también en `config/stt.toml` (`[output] listen`). El listener se
+abre antes de `start`; un cliente que llega tarde recibe primero `start`. Un
+cliente lento o desconectado no bloquea el pipeline ni a los demás. Si el
+puerto está ocupado, el núcleo emite `error` (`code = "output_listen"`) y sale
+con código 1.
+
 Captura cruda, sin `stt` (útil para depurar o para otro consumidor):
 
 ```sh
@@ -167,7 +191,8 @@ El log del servidor PulseAudio queda en `var/tmp/stage4/pulseaudio.log`.
 ## 5. Tests
 
 ```sh
-sh tests/run-stage4-tests.sh
+sh tests/run-stage4-tests.sh   # micrófono real (S4.1–S4.4)
+make test-stage5               # sherpa ES/EN, --out y parciales (S5.3–S5.9)
 ```
 
 Cubre:
@@ -180,8 +205,17 @@ Cubre:
 
 Evidencia en `var/tmp/stage4/` (`live_s42.json`, `stage4-run.log`, etc.).
 
+`make test-stage5` cubre la expansión (Sesión 012): cobertura fuzzy EN/ES,
+RTF/RSS con frames fijos de 5 s, selección de motor por config, fan-out TCP y
+Unix (2 clientes + cliente tardío + desconexión) y parciales end-to-end. Las
+regresiones completas de stages 1–4 se pueden encadenar con
+`STT_REGRESS=1 make test-stage5`.
+
 ## 6. Limitaciones v1
 
 - El **hotfolder** (CONTRATOS §4) queda como alternativa futura; v1 usa pipe.
 - No hay cancelación de eco propia: la calidad depende del micrófono, el
   altavoz y el ruido ambiente del teléfono.
+- El fan-out `--out` no tiene autenticación ni cifrado y los clientes son
+  receive-only: escúchalo en loopback (`127.0.0.1`) o detrás de un túnel. No
+  expongas el puerto a una red no confiable.

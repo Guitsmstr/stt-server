@@ -45,7 +45,8 @@ type Runner struct {
 
 // Output tunes stt-events/1 emission.
 type Output struct {
-	Partials bool // forward adapter "partial" events to stdout
+	Partials bool   // forward adapter "partial" events to stdout
+	Listen   string // optional fan-out listener: tcp://host:port or unix:///path
 }
 
 // Config is the resolved configuration.
@@ -67,7 +68,7 @@ func Default() Config {
 		},
 		Adapter: Adapter{Cmd: "adapters/echo/stt-adapter-echo"},
 		Runner:  Runner{MaxRestarts: 3, RestartWindowS: 60},
-		Output:  Output{Partials: false},
+		Output:  Output{Partials: false, Listen: ""},
 	}
 }
 
@@ -165,6 +166,8 @@ func assign(c *Config, section, key, val string) error {
 		return setInt(val, &c.Runner.RestartWindowS)
 	case "output.partials":
 		return setBool(val, &c.Output.Partials)
+	case "output.listen":
+		return setString(val, &c.Output.Listen)
 	default:
 		return fmt.Errorf("unknown key %q in section %q", key, section)
 	}

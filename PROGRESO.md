@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 5 — 🟦 en ejecución (Sesión 011)** |
-| **Última actualización** | 2026-10-23 (Sesión 011) |
-| **Siguiente paso** | **S5.4** (Sesión 012) — transcripción es/en sobre archivo con cobertura fuzzy ≥ 80 % (EN: beckett ya literal tras Sesión 009; falta clip ES por TTS + medición) y luego **S5.5** (RTF/RSS con frames de 5 s) |
+| **Stage actual** | **Stage 5 — ✅ cerrado (Sesión 012)** |
+| **Última actualización** | 2026-10-23 (Sesión 012) |
+| **Siguiente paso** | No hay stages abiertos. Antes de un release: `make test-soak` (30 min). Líneas futuras posibles: Stage 6 (sesiones concurrentes), whisper.cpp (máxima precisión) o empaquetado — ninguna definida aún. |
 
 ## Estado de stages
 
@@ -19,7 +19,7 @@
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
-| 5 | Expansión (sherpa-onnx + salida remota) | 🟦 en ejecución (Sesión 011): S5.3 + S5.6 ✅; S5.4/S5.5 y S5.7–S5.9 pendientes |
+| 5 | Expansión (sherpa-onnx + salida remota) | ✅ cerrado (Sesión 012): S5.1–S5.9 ✅ |
 
 ---
 
@@ -94,7 +94,7 @@ Específicos:
 - [x] **S3.1** Stream continuo ≥ 5 min → eventos finales sin pérdidas relevantes — 319.9 s en tiempo real, 180 finales; cobertura **media 96.9 %** por repetición (mediana 100 %, mín 91.7 %); VAD 96.9 % vs sin VAD 85.3 %
 - [x] **S3.2** Latencia **≤ 800 ms** desde fin de segmento hasta evento — steady-state (tras warmup de 5 s): **máx 0.531 s**, p95 0.497 s, media 0.446 s (176 finales). El máximo global con arranque (carga del modelo) es 0.979 s; se documenta como transitorio
 - [x] **S3.3** VAD: silencio sostenido (≥ 2 s) no genera texto basura — 0 finales dentro de los 6 s de silencio, `skipped_s=13.93`, habla anterior transcrita
-- [x] **S3.4** 30 min de stream: RSS estable y sin frames perdidos — 1791.1 s a 6×, 1008 frames = 1008 finales; núcleo RSS máx 8020 kB, drift −28 kB; adaptador 261 820 kB
+- [x] **S3.4** Soak de stream: RSS estable y sin frames perdidos — full 30 min (Sesión 005): 1791.1 s a 6×, 1008 frames = 1008 finales, núcleo RSS máx 8020 kB, drift −28 kB, adaptador 261 820 kB. La suite normal corre un soak de 10 min a 6× (Sesión 012: 596.7 s, 336/336 frames, drift 420 kB, ~100 s de pared); el de 30 min queda como gate de release con `make test-soak` (ver Sesión 012)
 - [x] **S3.5** Eventos `partial` implementados según config — echo con `--partials=true`: 1/1; default: 0; moonshine declara solo `final` ⇒ 0 partials (justificado: el adaptador v1 no produce parciales; el contrato y el cableado ya están listos)
 
 > **Nota (Sesión 005):** Stage 3 cerrado. La Sesión 004 quedó como bitácora
@@ -132,20 +132,123 @@ Específicos:
 - [x] **S5.1** Alcance definido y registrado en `docs/PLAN.md` — aprobado por el usuario (Sesión 007): A (segundo motor; whisper.cpp → **sherpa-onnx**, D14) + B (`--out`); sesiones múltiples fuera de alcance
 - [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.9 en esta sección
 - [x] **S5.3** Compilación + handshake **OK** (Sesión 008): sherpa-onnx **v1.13.8** clonado en `var/tmp/sherpa-onnx` y compilado desde fuente (estático, cmake Release) contra `libonnxruntime` 1.24.4 del sistema; parche local `-include cstdint` (GCC 15/musl deja de heredar `<cstdint>` transitivamente; ~500 TUs afectados) vía `scripts/fetch-sherpa.sh` (idempotente, `--offline`). Adaptador `adapters/sherpa/` (`sherpa.cc` + Makefile, `-Wall -Wextra` sin warnings, binario estático 5 MB + ORT del sistema): auto-detección de archivos del modelo (prefiere int8), `--model/--encoder/--decoder/--joiner/--tokens/--threads/--no-endpoint/--rule{1,2,3}`. Handshake verificado: `ready` con `"capabilities":["final","partial"]`, `error` fatales por header/audio/modelo ausente, `bye` con `rss_kb`. E2E con `tests/feed_stream.py` (`--speed 2 --partials`): 6 finales + 12 parciales palabra a palabra a través del núcleo, texto Beckett correcto ("Ever tried. Ever failed. No matter..."); RSS adaptador 136 MB; RTF crudo 0.21–0.48 en frames de 2 s (limitado; S5.5 mide en condiciones del check con frames de 5 s)
-- [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS) — nota Sesión 009: EN beckett ya se transcribe **literal** con `sherpa` (kroko EN 2025 + 2 fixes del adaptador, ver bitácora); falta el clip ES y la medición fuzzy formal
-- [ ] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames de 5 s) — nota Sesión 009: kroko EN rtf 0.16–0.29 y RSS 162 MB en la ruta completa (indicio favorable; medición formal pendiente)
+- [x] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia) — **EN 100 %** (12 palabras; beckett con kroko EN 2025) y **ES 94.1 %** (17 palabras; clip JFK incluido en `var/models/sherpa-zipformer-es/test_wav0.wav`, resampleado a 16 kHz). `tests/coverage.py` ahora normaliza Unicode (acentos), soporta `--ndjson` y usa LCS difuso (un fallo temprano como «qué»→«si» ya no arrastra la cobertura al 41 %). Evidencia en `var/tmp/stage5/stage5-run.log`
+- [x] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames fijos de 5 s) — **EN: RTF máx 0.15–0.16, RSS ≈162 MB**; **ES: RTF máx 0.19–0.20, RSS ≈254 MB** (`--vad=false --frame-ms 5000`, S5.5 en `tests/run-stage5-tests.sh`; última corrida 0.151/162 068 kB y 0.185/253 448 kB)
 - [x] **S5.6** Cache de modelos idempotente en `var/models/sherpa-zipformer-{es,en}/` (2ª corrida con `--offline`) — Sesión 009: `fetch-model.sh --model kroko-es|kroko-en|zipformer-en` con sha256 pinneado; las 4 corridas `--offline` imprimen `cached:` y `model ready:` (evidencia en bitácora); `make models` descarga tiny + los 3 zipformer
 
-> `make test-stage5` ejecuta un smoke **parcial** (S5.3/S5.6: carga EN/ES + `final` + `partial`) en `tests/run-stage5-tests.sh`; las mediciones formales S5.4/S5.5 y los checks S5.7–S5.9 siguen pendientes (Sesión 012).
-- [ ] **S5.7** Selección de motor por config/flag; moonshine sigue siendo el default; regresión de stages 1–4 en verde
-- [ ] **S5.8** `--out tcp://…` (y `unix://…`): 2 clientes simultáneos reciben los mismos eventos NDJSON; sobrecoste de latencia ≤ 10 ms; la desconexión de un cliente no afecta al pipeline ni al otro
-- [ ] **S5.9** Partials end-to-end (demo karaoke): con `[output] partials = true`, `stt-captions` muestra texto interim **mientras se habla** y el `final` final confirma el segmento (cierra lo dejado pendiente en S3.5)
+> `make test-stage5` ejecuta la suite completa S5.3–S5.9 (`tests/run-stage5-tests.sh`, ~3 min con modelos cacheados): fuzzy ES/EN, RTF/RSS, cache, selección de motor, fan-out TCP/Unix y parciales + captions. `STT_REGRESS=1` encadena además los stages 1–4.
 
-Generales G1–G6: al ejecutar
+- [x] **S5.7** Selección de motor por config/flag; moonshine sigue siendo el default; regresión de stages 1–4 en verde — `stt once` sin flags → `moonshine-tiny`; config temporal `[adapter] cmd/args` → `sherpa-zipformer-en-kroko` con `[output] partials = true`; regresiones: Stage 1 `make test` ✅, Stage 2 ✅ (S2.3 corregido a `--vad=false`, ver Sesión 012), Stage 3 ✅ (soak rápido), Stage 4 live ✅ (S4.1 RMS 91.1, S4.2 latencia 1.743 s, TTS transcript literal)
+- [x] **S5.8** `--out tcp://…` y `unix://…`: 2 clientes simultáneos reciben los mismos eventos NDJSON; sobrecoste de latencia ≤ 10 ms; la desconexión de un cliente no afecta al pipeline ni al otro — TCP: p95 **0.3–0.5 ms**, máx ≤ 23 ms (jitter de scheduler), 8/8 eventos idénticos; Unix: p95 **0.2–0.4 ms**, máx ≤ 15 ms; cliente tardío recibe `start` replay + eventos vivos; desconexión del cliente 0 aislada; exit 0 y sin errores. Implementación **D15** (`core/internal/fanout`, `tests/fanout_probe.py`)
+- [x] **S5.9** Partials end-to-end (demo karaoke): con `[output] partials = true`, `stt-captions` muestra texto interim **mientras se habla** y el `final` final confirma el segmento (cierra lo pendiente de S3.5) — feed real de 31.4 s con sherpa: **22 parciales**, primero a ~13 s (el feed seguía: 31.62 s), todos confirmados por un `final` posterior del mismo frame (`.t` del partial contenido en el final); `stt-captions --render-only` imprime `… interim` y luego `[MM:SS] final`. Los parciales en stdout no-TTY ahora llevan salto de línea (logs/replay)
+
+Generales (Sesión 012):
+- [x] **G1** Build limpio — `make test` (go vet + Go tests + Stage 1), `make -C adapters/...`; sin warnings nuevos
+- [x] **G2** Checks específicos con evidencia — `var/tmp/stage5/stage5-run.log` (ALL OK) + `regress-stage{1,2b,3,4c}.log`
+- [x] **G3** Docs sincronizadas — CONTRATOS §3.1, ARQUITECTURA §4/§5/D15, PLAN, README, OPERACION §3.2/§5, PREREQUISITOS, REGLAS R11, config
+- [x] **G4** PROGRESO actualizado — esta tabla + bitácora Sesión 012
+- [x] **G5** Sin regresiones — stages 1, 2, 3 y 4 en verde (Stage 4 live incluido)
+- [x] **G6** Limpieza — evidencia en `var/tmp/stage5`; sin procesos adaptadores/servidores residuales; `__pycache__` ignorado
 
 ---
 
 ## Bitácora
+
+### Sesión 012 — 2026-10-23
+**Alcance**: cierre del Stage 5 — S5.4 (cobertura fuzzy ES/EN), S5.5 (RTF/RSS
+con frames de 5 s), S5.7 (selección de motor + regresiones 1–4), S5.8
+(`--out` TCP/Unix con fan-out) y S5.9 (parciales end-to-end + captions).
+También se revisó el coste/valor del soak de 30 min.
+
+**Implementado**
+- **S5.8 — fan-out**: `core/internal/fanout` (listener TCP/Unix, hub con cola
+  acotada de 256 líneas por cliente, replay de `start`, drenaje del `eof`,
+  desconexión de clientes lentos sin bloquear el pipeline) + `--out` y
+  `[output] listen` en el núcleo. `core/internal/fanout/fanout_test.go` cubre
+  2 clientes, cliente tardío, desconexión aislada, Unix y direcciones
+  inválidas. `tests/fanout_probe.py` mide eventos idénticos, aislamiento y
+  sobrecoste p95/máx.
+- **S5.9 — captions**: `stt-captions` imprime los `partial` con salto de línea
+  cuando stdout no es TTY (antes se concatenaban con el `final` en logs y
+  `--render-only`); el renderizado interim+final se valida en la suite.
+- **S5.4 — cobertura**: `tests/coverage.py` normaliza Unicode (acentos
+  español), acepta NDJSON (`--ndjson`) y puntúa con LCS difuso en vez de un
+  escaneo greedy (un «qué»→«si» temprano hundía la cobertura al 41 %). EN
+  100 %, ES 94.1 %.
+- **S5.5 — medición formal**: frames fijos de 5 s (`--vad=false`) para que el
+  RTF corresponda al check y no a segmentos VAD de ~1 s: EN 0.156 / 163 MB,
+  ES 0.202 / 254 MB.
+- **S5.7 — motores**: default `config/stt.toml` = Moonshine; una config
+  temporal con `[adapter] cmd/args` selecciona sherpa y `[output] partials`
+  activa parciales. Regresiones 1–4 ejecutadas (ver evidencia).
+- **Suite Stage 5**: `tests/run-stage5-tests.sh` reescrito con S5.3–S5.9
+  (antes era un smoke parcial); `make test-stage5` ahora tarda ~3 min.
+- **Soak**: `tests/run-stage3-tests.sh` corre por defecto 10 min de audio a 6×
+  (~100 s de pared) y `make test-soak`/`STT_SOAK=1` ejecuta el soak completo de
+  30 min. El check S3.4 conserva la evidencia de 30 min de la Sesión 005.
+- **Fix de check**: S2.3 medía RTF con VAD (segmentos de 0.7–1.3 s), no los
+  «frames de 2 s» que declara; ahora usa `--vad=false --frame-ms 2000`
+  (RTF estable ~0.30 en vez de 0.35–0.36 por overhead de frames cortos).
+
+**Evidencia (Sesión 012)**
+- `var/tmp/stage5/stage5-run.log`: **Stage 5 checks: ALL OK** — S5.6 4/4
+  cacheados EN y 5/5 ES (incluye el clip de prueba); S5.4 EN 100 % / ES
+  94.1 %; S5.5 EN 0.151/162 068 kB, ES 0.185/253 448 kB; S5.7 moonshine
+  default + sherpa por config; S5.8 TCP p95 0.46 ms / Unix p95 0.34 ms,
+  eventos idénticos, cliente tardío y desconexión OK; S5.9 22 parciales,
+  primero a ~13 s de un feed de 31.62 s, todos confirmados por un final
+  posterior.
+- `regress-stage1.log` (make test + Stage 1 ALL OK), `regress-stage2b.log`
+  (Stage 2 ALL OK, RTF 2 s 0.30), `regress-stage3.log` (Stage 3 ALL OK; soak
+  rápido 596.7 s, 336/336 frames, drift 420 kB), `regress-stage4c.log`
+  (Stage 4 live ALL OK: S4.1 RMS 91.1/peak 2572; S4.2 latencia 1.743 s;
+  transcripción TTS literal; S4.4a/b/c OK; sin servidores residuales).
+- `go test ./...`: fanout + config + protocol + runner + segment en verde.
+
+**Bugs encontrados y corregidos**
+1. `eof` podía perderse al cerrar el hub: `Close` cortaba conexiones antes de
+   que el writer drenara la cola. Añadido drenaje acotado (2 s) con flag
+   `writing` por cliente; `eof` llega a los 3 clientes.
+2. El probe de fan-out dejaba `timeout=2 s` de `create_connection`, agotado
+   durante la carga de 12–16 s del modelo sherpa; ahora `settimeout(None)`.
+3. La cobertura ES usaba un matcher greedy que, con una sustitución temprana,
+   saltaba a la segunda cláusula y perdía el resto (41 %); LCS difuso → 94.1 %.
+4. S2.3 no medía frames de 2 s desde que el VAD es default (ver arriba).
+5. `stt-captions` no separaba los parciales en stdout no-TTY.
+6. `tests/run-stage3-tests.sh`: un `[ … ] && var=…` bajo `set -e` podía abortar
+   el script; convertido a `if`.
+
+**Sobre el test de 30 min (evaluación pedida)**
+- **Coste**: 30 min de audio a 6× ≈ 300 s de pared; con S3.1 (5 min en tiempo
+  real) la suite Stage 3 pasaba de ~6 min a ~11 min. El soak de 10 min cuesta
+  ~100 s y cubre 336 frames.
+- **Qué aporta**: detecta fugas/acumulación en el contabilidad de frames,
+  crecimiento de RSS del núcleo y del adaptador, y crashes de larga duración
+  sobre 1008 segmentos. Es un buen *tripwire* de leaks.
+- **Qué no aporta**: al ir a 6× no simula 30 min de reloj (solo ~5 min), usa
+  el mismo clip sintético repetido (la calidad ya la mide S3.1) y no cubre
+  micrófono real, thermal throttling ni GC de pared. No es un test de
+  aceptación de usuario.
+- **Decisión**: sacarlo de la ruta normal (10 min por defecto) y conservarlo
+  como **gate de release** (`make test-soak`). Si aparece una sospecha de
+  leak, el soak completo es el que decide; para cada cambio, el rápido es
+  suficiente para el mismo invariante (frames == finales, RSS estable).
+
+**Archivos tocados**: `core/internal/fanout/{fanout.go,fanout_test.go}`,
+`core/internal/config/{config.go,config_test.go}`, `core/cmd/stt/main.go`,
+`config/stt.toml`, `Makefile`, `scripts/stt-captions.sh`,
+`tests/{coverage.py,fanout_probe.py,run-stage2-tests.sh,run-stage3-tests.sh,run-stage5-tests.sh}`,
+`README.md`, `docs/{PLAN,ARQUITECTURA,CONTRATOS,OPERACION,PREREQUISITOS}.md`,
+`PROGRESO.md`.
+
+**Decisiones nuevas**: **D15** (implementación del fan-out: colas acotadas,
+replay de `start`, drenaje del `eof`, socket Unix limpiado). No hay decisión
+nueva para el soak: es una política de pruebas registrada aquí y en PLAN §Stage 3.
+
+**Siguiente paso**: no quedan stages abiertos. Antes de un release, ejecutar
+`make test-soak` y revisar que el soak completo siga verde. Futuro posible
+(sin definir): Stage 6 (sesiones concurrentes), whisper.cpp como motor de
+máxima precisión o empaquetado.
 
 ### Sesión 011 — 2026-10-23
 **Alcance**: auditoría de los stages 0–4 y housekeeping de documentación/estado, sin avanzar S5.4–S5.9.

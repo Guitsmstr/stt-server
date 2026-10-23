@@ -26,14 +26,14 @@ func Open(path string) (io.Reader, error) {
 	}
 
 	var (
-		format      uint16
-		channels    uint16
-		rate        uint32
-		bits        uint16
-		dataOffset  int64 = -1
-		dataLen     uint32
-		sawFmt      bool
-		offset      int64 = 12
+		format     uint16
+		channels   uint16
+		rate       uint32
+		bits       uint16
+		dataOffset int64 = -1
+		dataLen    uint32
+		sawFmt     bool
+		offset     int64 = 12
 	)
 	var ch [8]byte
 	for {

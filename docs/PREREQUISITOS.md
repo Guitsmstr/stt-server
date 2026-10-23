@@ -88,9 +88,10 @@ Arranque/verificación:
 | Moonshine tiny (ONNX merged: `encoder_model.onnx` + `decoder_model_merged.onnx`) | HF `moonshine-ai/moonshine` (antes `UsefulSensors/moonshine`), `onnx/merged/tiny/float` | 30.9 + 78.2 MB | ✅ en `var/models/moonshine-tiny` (Sesión 003) |
 | Tokenizer (para decodificar ids → texto) | HF `moonshine-ai/moonshine`, `ctranslate2/tiny/tokenizer.json` | 2.0 MB | ✅ cacheado + `vocab.tsv` generado (32000 entradas) |
 | Moonshine base (opcional, mejor calidad) | HF `onnx/merged/base/float` | ~100 MB | pendiente (no soportado por el fetch v1) |
-| Kroko EN 2025 (streaming zipformer, float, 24 kHz) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06` | ~68 MB | ✅ `var/models/sherpa-zipformer-en-kroko` (Sesión 009) |
-| Kroko ES 2025 (streaming zipformer, float, 22.05 kHz) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06` | ~149 MB | ✅ `var/models/sherpa-zipformer-es` (Sesión 009) |
+| Kroko EN 2025 (streaming zipformer, float, 24 kHz) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06` | ~69 MB | ✅ `var/models/sherpa-zipformer-en-kroko` (Sesión 009) |
+| Kroko ES 2025 (streaming zipformer, float, 22.05 kHz) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06` | ~150 MB | ✅ `var/models/sherpa-zipformer-es` (Sesión 009) |
 | Zipformer EN 2023 (streaming, int8, fallback) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26` | ~69 MB | ✅ `var/models/sherpa-zipformer-en` (Sesión 009) |
+| Clip de prueba ES (JFK, 22.05 kHz) | HF repo kroko-es, `test_wavs/0.wav` | 235 KB | ✅ `var/models/sherpa-zipformer-es/test_wav0.wav`; S5.4 lo resamplea a 16 kHz |
 
 Destino de cache del proyecto: `var/models/moonshine-tiny/` y
 `var/models/sherpa-zipformer-*/` vía `scripts/fetch-model.sh` (idempotente,
@@ -117,10 +118,14 @@ echo 'int main(){return 0;}' > /tmp/t.cc && g++ /tmp/t.cc -o /tmp/t && /tmp/t &&
 | Tiempo de carga del modelo (Stage 2) | ~2.4 s (threads=4) |
 | **Cobertura Stage 3 (5 min, VAD)** | **96.9 % por repetición** (sin VAD 85.3 %) |
 | **Latencia Stage 3 (steady-state)** | **máx 0.531 s, p95 0.497 s, media 0.446 s** |
-| **Sherpa Kroko EN 2025 (ruta completa, frames 5 s; Sesiones 009–010)** | **RTF 0.16–0.29; RSS 162 MB; carga ~13 s** |
+| **Sherpa Kroko EN 2025 (ruta completa, frames fijos de 5 s; Sesión 012)** | **RTF máx 0.156; RSS 163 MB; carga ~12–13 s** |
+| **Sherpa Kroko ES 2025 (frames fijos de 5 s; Sesión 012)** | **RTF máx 0.202; RSS 254 MB; cobertura ES 94.1 %** |
+| **Fan-out `--out` (S5.8, 2 clientes TCP/Unix)** | **p95 de sobrecoste 0.2–0.8 ms (objetivo ≤ 10 ms); eventos idénticos** |
 | **Captura Stage 4 (S4.1)** | **8.5 s de PCM real; RMS 97.2, peak 409 en la suite final** (otras corridas 90–780 RMS; Sesión 006) |
-| **Latencia Stage 4 (S4.2, TTS acústico)** | **1.307 s** `arrival − t1` en la suite final (1.438 s en corrida limpia; objetivo ≤ 3 s) |
+| **Latencia Stage 4 (S4.2, TTS acústico)** | **1.307 s** `arrival − t1` en la suite final (1.743 s en la regresión de la Sesión 012; objetivo ≤ 3 s) |
 | RAM del stack Python validado | no medida; el objetivo C++ es RSS < 300 MB con modelo |
 
-Medición reproducible: `make test-stage2` y `make test-stage3`
-(`tests/run-stage2-tests.sh`, `tests/run-stage3-tests.sh`).
+Medición reproducible: `make test-stage2`, `make test-stage3` (soak rápido de
+10 min a 6×), `make test-soak` (soak completo de 30 min) y `make test-stage5`
+(`tests/run-stage2-tests.sh`, `tests/run-stage3-tests.sh`,
+`tests/run-stage5-tests.sh`).

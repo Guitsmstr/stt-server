@@ -3,8 +3,9 @@
 #
 # Requires: var/bin/stt (make), adapters (make), onnxruntime-dev, the model
 # cache in var/models/moonshine-tiny (scripts/fetch-model.sh), jq, sox,
-# python3. Runs take ~11 min wall: S3.1 feeds 5+ min of audio in real time
-# (latency is only measurable at 1x), S3.4 runs 30 min of audio at 6x.
+# python3. Runs take ~6 min wall by default: S3.1 feeds 5+ min of audio in
+# real time (latency is only measurable at 1x) and S3.4 runs a 10 min soak at
+# 6x. Set STT_SOAK=1 (make test-soak) for the original 30 min soak.
 #
 # Test audio: tests/assets/beckett.wav (real speech, Moonshine project, MIT).
 # Reference transcript: "Ever tried ever failed, no matter try again, fail
@@ -29,7 +30,11 @@ need "$STT"; need "$ADAPTER"; need "$ECHO"; need "$WAV"
 
 echo "== assets: build stream PCM files in var/tmp/stage3 =="
 sox "$WAV" -t raw "$TMP/beckett.raw"
-python3 - "$TMP/beckett.raw" "$TMP/stream5min.pcm" "$TMP/stream30min.pcm" "$TMP/silence_span.pcm" <<'EOF'
+SOAK_LOOPS=56      # ~600 s of audio (~100 s wall at 6x)
+if [ "${STT_SOAK:-0}" = "1" ]; then
+	SOAK_LOOPS=168  # ~1791 s (~300 s wall at 6x)
+fi
+python3 - "$TMP/beckett.raw" "$TMP/stream5min.pcm" "$TMP/stream-soak.pcm" "$TMP/silence_span.pcm" "$SOAK_LOOPS" <<'EOF'
 import sys
 speech = open(sys.argv[1], "rb").read()
 gaps = [0.3, 0.6, 0.9, 1.2, 0.5]  # deterministic pause cycle (s)
@@ -40,12 +45,12 @@ def stream(loops):
         parts.append(b"\x00" * int(32000 * gaps[i % len(gaps)]))
     return b"".join(parts)
 five = stream(30)   # 30 x (9.96 + ~0.7) s ~= 320 s
-thirty = stream(168)  # ~= 1791 s
+soak = stream(int(sys.argv[5]))
 open(sys.argv[2], "wb").write(five)
-open(sys.argv[3], "wb").write(thirty)
+open(sys.argv[3], "wb").write(soak)
 sil = speech + b"\x00" * (32000 * 6) + speech  # 10 s speech, 6 s silence
 open(sys.argv[4], "wb").write(sil)
-print(f"stream5min.pcm: {len(five)/32000:.1f} s, stream30min.pcm: {len(thirty)/32000:.1f} s, silence_span.pcm: {len(sil)/32000:.1f} s")
+print(f"stream5min.pcm: {len(five)/32000:.1f} s, stream-soak.pcm: {len(soak)/32000:.1f} s, silence_span.pcm: {len(sil)/32000:.1f} s")
 EOF
 
 echo
@@ -114,24 +119,31 @@ echo "finals inside silence: 0, skipped_s: $skipped, speech before silence: $bef
 echo "OK S3.3"
 
 echo
-echo "== S3.4: 30 min stream at 6x: RSS stable, no frames lost =="
+if [ "${STT_SOAK:-0}" = "1" ]; then
+	echo "== S3.4 (full soak): 30 min stream at 6x: RSS stable, no frames lost =="
+	MIN_AUDIO=1780
+else
+	echo "== S3.4 (quick soak): 10 min stream at 6x: RSS stable, no frames lost =="
+	echo "   (set STT_SOAK=1 for the full 30 min release soak; see PROGRESO Sesión 012)"
+	MIN_AUDIO=590
+fi
 python3 tests/feed_stream.py --stt "$STT" --adapter "$ADAPTER" --model "$MODEL" \
-	--pcm "$TMP/stream30min.pcm" --speed 6 --frame-ms 5000 --min-segment-ms 3000 \
-	--report "$TMP/report-30min.json" > "$TMP/summary-30min.json"
-cat "$TMP/summary-30min.json"
-jq -e '.exit_code == 0 and .errors == []' "$TMP/summary-30min.json" >/dev/null || fail "errors during 30 min stream"
-audio=$(jq -r '.audio_s' "$TMP/summary-30min.json"); audio_s=${audio%.*}
-[ "$audio_s" -ge 1780 ] || fail "stream only ${audio_s} s"
-frames=$(jq -r '.eof.frames' "$TMP/summary-30min.json")
-finals=$(jq -r '.finals' "$TMP/summary-30min.json")
+	--pcm "$TMP/stream-soak.pcm" --speed 6 --frame-ms 5000 --min-segment-ms 3000 \
+	--report "$TMP/report-soak.json" > "$TMP/summary-soak.json"
+cat "$TMP/summary-soak.json"
+jq -e '.exit_code == 0 and .errors == []' "$TMP/summary-soak.json" >/dev/null || fail "errors during soak stream"
+audio=$(jq -r '.audio_s' "$TMP/summary-soak.json"); audio_s=${audio%.*}
+[ "$audio_s" -ge "$MIN_AUDIO" ] || fail "stream only ${audio_s} s"
+frames=$(jq -r '.eof.frames' "$TMP/summary-soak.json")
+finals=$(jq -r '.finals' "$TMP/summary-soak.json")
 [ "$frames" = "$finals" ] || fail "frames ($frames) != finals ($finals): lost frames"
-rssmax=$(jq -r '.nucleus_rss_max_kb' "$TMP/summary-30min.json")
-rssq1=$(jq -r '.nucleus_rss_first_quarter_max_kb' "$TMP/summary-30min.json")
-rssq4=$(jq -r '.nucleus_rss_last_quarter_max_kb' "$TMP/summary-30min.json")
+rssmax=$(jq -r '.nucleus_rss_max_kb' "$TMP/summary-soak.json")
+rssq1=$(jq -r '.nucleus_rss_first_quarter_max_kb' "$TMP/summary-soak.json")
+rssq4=$(jq -r '.nucleus_rss_last_quarter_max_kb' "$TMP/summary-soak.json")
 drift=$((rssq4 - rssq1))
 [ "$rssmax" -lt 65536 ] || fail "nucleus RSS ${rssmax} kB >= 64 MB"
 [ "$drift" -lt 10240 ] || fail "nucleus RSS drift ${drift} kB suggests a leak"
-adrss=$(jq -r '.eof.rss_kb // 0' "$TMP/summary-30min.json")
+adrss=$(jq -r '.eof.rss_kb // 0' "$TMP/summary-soak.json")
 [ "$adrss" -gt 0 ] && [ "$adrss" -lt 300000 ] || fail "adapter RSS ${adrss} kB out of range"
 echo "nucleus RSS: max ${rssmax} kB, drift ${drift} kB; adapter peak: ${adrss} kB; frames: $frames"
 echo "OK S3.4"
@@ -155,6 +167,6 @@ n=$(echo "$out" | jq -s '[.[] | select(.type=="partial")] | length')
 echo "partials=true + moonshine (capability ['final'] only): 0 partials (expected; justification in PROGRESO)"
 echo "OK S3.5"
 
-rm -f "$TMP/stream5min.pcm" "$TMP/stream30min.pcm" "$TMP/silence_span.pcm" "$TMP/beckett.raw"
+rm -f "$TMP/stream5min.pcm" "$TMP/stream-soak.pcm" "$TMP/silence_span.pcm" "$TMP/beckett.raw"
 echo
 echo "Stage 3 checks: ALL OK"

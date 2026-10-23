@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 5 — 🟦 en ejecución (S5.3/S5.6 ✅; S5.4/S5.5/S5.7–S5.9 pendientes; ver PROGRESO.md) |
-| **Última actualización** | 2026-10-23 (Sesión 011) |
+| **Estado actual** | Stage 5 — ✅ cerrado (Sesión 012): S5.3–S5.9 verificados; ver PROGRESO.md |
+| **Última actualización** | 2026-10-23 (Sesión 012) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
 ---
@@ -99,7 +99,10 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   `tests/coverage.py`).
 - **Criterio de salida**: 5+ minutos de audio continuo → texto sin pérdidas
   relevantes (cobertura por repetición ≥ 90 %), latencia steady-state ≤ 800 ms
-  desde el fin del segmento hasta el evento; 30 min con RSS estable.
+  desde el fin del segmento hasta el evento; soak con RSS estable. La suite
+  normal corre un soak de 10 min a 6× (~100 s de pared); el soak original de
+  30 min (~300 s) queda como gate de release con `make test-soak`
+  (`STT_SOAK=1`). Evidencia del 30 min completo: Sesión 005.
 
 ### Stage 4 — Entrada de audio real (Android/Termux)
 - **Objetivo**: hablar al micrófono del teléfono → texto en stdout.
@@ -118,7 +121,7 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   TTS acústico; S4.3 cerrado en la Sesión 007 con voz humana: 3 finales,
   latencia máx 1.269 s.)
 
-### Stage 5 — Expansión (en ejecución desde la Sesión 008; motor sherpa-onnx por D14)
+### Stage 5 — Expansión (cerrado en la Sesión 012; motor sherpa-onnx por D14)
 - **Objetivo**: ampliar el componente en dos direcciones sin romper contratos:
   **(a) multilingüe + streaming real** — segundo motor `stt-adapter-sherpa` en
   C++ contra **sherpa-onnx** (streaming zipformer Kroko 2025 float, español e
@@ -140,15 +143,19 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   config).
 - **Objetivos sherpa**: RTF ≤ 0.35 y RSS pico < 300 MB (el streaming es
   más ligero que whisper en este hardware; más estricto que los 0.5/350 MB
-  planteados para whisper).
+  planteados para whisper). Medición formal S5.5 con frames fijos de 5 s:
+  EN RTF máx 0.156 / RSS 163 MB; ES RTF máx 0.202 / RSS 254 MB.
 - **Fuera de alcance de este stage**: sesiones múltiples concurrentes
   (posible Stage 6), whisper.cpp (queda como opción futura de máxima
   precisión), empaquetado/distribución.
-- **Criterio de salida**: el mismo audio transcrito en español e inglés con
-  **parciales visibles mientras se habla** (demo karaoke en `stt-captions`),
-  moonshine y las regresiones de stages 1–4 en verde; 2 clientes simultáneos
-  reciben los mismos eventos por socket con sobrecoste de latencia ≤ 10 ms y
-  sin que una desconexión afecte al pipeline.
+- **Criterio de salida (cumplido en la Sesión 012)**: el mismo audio
+  transcrito en español e inglés con cobertura fuzzy ≥ 80 % (EN 100 %, ES
+  94.1 %), **parciales visibles mientras se habla** (22 parciales en un feed de
+  31 s, confirmados por finales; renderizado interim+final en `stt-captions`),
+  moonshine default y regresiones de stages 1–4 en verde (S4.2 TTS acústico:
+  latencia 1.743 s); 2 clientes simultáneos reciben los mismos eventos por
+  TCP y Unix con p95 de sobrecoste < 1 ms y sin que una desconexión afecte al
+  pipeline.
 
 ## 6. Riesgos
 

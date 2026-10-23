@@ -102,8 +102,14 @@ EOF
                 ;;
             partial)
                 hide_ind
-                printf '%s… %s%s' "$D" "$text" "$R"
-                IND=1   # interim text occupies the line; next event clears it
+                if [ -t 1 ]; then
+                    printf '%s… %s%s' "$D" "$text" "$R"
+                    IND=1   # interim text occupies the line; next event clears it
+                else
+                    # Piped output (logs, --render-only tests): one line per
+                    # interim update instead of relying on terminal erase.
+                    printf '%s… %s%s\n' "$D" "$text" "$R"
+                fi
                 ;;
             error)
                 hide_ind

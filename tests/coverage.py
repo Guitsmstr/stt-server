@@ -22,12 +22,18 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 
 REF = "ever tried ever failed no matter try again fail again fail better".split()
 
 
 def words(text):
-    return re.sub(r"[^a-z0-9' ]", " ", text.lower()).split()
+    # NFD + drop combining marks keeps accented Spanish words (país -> pais)
+    # comparable to the model output, while the ASCII filter keeps numerals
+    # and apostrophes and drops punctuation.
+    text = unicodedata.normalize("NFD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9' ]", " ", text).split()
 
 
 def levenshtein(a, b):
@@ -46,15 +52,21 @@ def tolerance(word):
 
 
 def score(got, ref):
-    i = matched = 0
+    # Word-level LCS with fuzzy matches. Unlike a greedy forward scan, one
+    # substitution early in the phrase cannot make the matcher skip ahead and
+    # lose the rest of the clause (observed on the Spanish S5.4 clip:
+    # "qué" -> "si" cascaded to 41 % under the old greedy matcher).
+    prev = [0] * (len(got) + 1)
     for want in ref:
-        j = i
-        while j < len(got) and levenshtein(got[j], want) > tolerance(want):
-            j += 1
-        if j < len(got):
-            matched += 1
-            i = j + 1
-    return matched / len(ref)
+        cur = [0] * (len(got) + 1)
+        tol = tolerance(want)
+        for j, word in enumerate(got, 1):
+            best = max(prev[j], cur[j - 1])
+            if levenshtein(word, want) <= tol:
+                best = max(best, prev[j - 1] + 1)
+            cur[j] = best
+        prev = cur
+    return prev[-1] / len(ref)
 
 
 def main():
@@ -68,6 +80,8 @@ def main():
                     help="reference transcript (default: English Beckett phrase)")
     ap.add_argument("--single", action="store_true",
                     help="score all finals once (no repeat windows)")
+    ap.add_argument("--ndjson", action="store_true",
+                    help="report is a stt-events/1 NDJSON file (e.g. stt once)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     threshold = args.threshold / 100.0 if args.threshold > 1 else args.threshold
@@ -78,9 +92,23 @@ def main():
     for r in range(args.repeats):
         starts.append(starts[-1] + periods[r % len(periods)])
 
-    data = json.load(open(args.report))
-    finals = data["finals"]
-    ref = args.ref.split()
+    if args.ndjson:
+        finals = []
+        with open(args.report, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("type") == "final":
+                    finals.append(ev)
+    else:
+        data = json.load(open(args.report))
+        finals = data["finals"]
+    ref = words(args.ref)
     if args.single:
         got = []
         for f in finals:

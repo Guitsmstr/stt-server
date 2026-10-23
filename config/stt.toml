@@ -26,3 +26,8 @@ restart_window_s = 60
 
 [output]
 partials = false
+# Optional remote fan-out: every stt-events/1 line is also broadcast to
+# connected clients (D13). Empty = stdout only.
+#   listen = "tcp://127.0.0.1:4714"
+#   listen = "unix:///tmp/stt.sock"
+listen = ""

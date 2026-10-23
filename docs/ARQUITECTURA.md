@@ -113,6 +113,11 @@ micrófono → OpenSL ES (module-sles-source de PulseAudio)
    núcleo es la **autoridad de `t0`/`t1`**: re-sella cada `final`/`partial` con
    su propia línea de tiempo del stream (tras un skip de VAD, los tiempos que
    calcula el adaptador a partir de los bytes recibidos estarían comprimidos).
+6. **fan-out** (opcional, `--out`/`[output] listen`): las mismas líneas
+   `stt-events/1` se escriben en un listener TCP/Unix y se difunden a N
+   clientes. Stdout sigue siendo la salida base. Un cliente lento se
+   desconecta solo a él (cola acotada) y el `eof` se drena antes de cerrar
+   (CONTRATOS §3.1).
 
 ## 5. Configuración (`config/stt.toml`)
 
@@ -136,10 +141,12 @@ max_stretch_ms = 300       # cuánto puede estirarse frame_ms buscando un dip
 
 [runner]  max_restarts = 3, restart_window_s = 60
 [output]  partials = false # true: reenvía partials de adaptadores que los declaren
+          listen = ""      # "" = solo stdout; tcp://host:port o unix:///ruta
 ```
 
 Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
-`--vad-threshold`, `--adapter`, `--model`, `--partials`, `--max-restarts`.
+`--vad-threshold`, `--adapter`, `--model`, `--partials`, `--out`,
+`--max-restarts`.
 
 ## 6. Cache de modelos
 
@@ -150,9 +157,9 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 - El script también genera `vocab.tsv` (`id<TAB>token`, 32000 líneas) a partir
   de `tokenizer.json` con `jq`; el adaptador C++ solo necesita ese mapa para
   decodificar tokens a texto (no requiere merges BPE ni una librería JSON).
-- Moonshine tiny ocupa 109 MB en caché (encoder 30.9 MB + decoder 78.2 MB +
-  tokenizer 2.0 MB). Los modelos sherpa del Stage 5 suman ~287 MB: Kroko EN
-  ~68 MB, Kroko ES ~149 MB y zipformer EN 2023 int8 ~69 MB. El código fuente
+- Moonshine tiny ocupa ~107 MB en caché (encoder 30.9 MB + decoder 78.2 MB +
+  tokenizer 2.0 MB). Los modelos sherpa del Stage 5 suman ~289 MB: Kroko EN
+  ~69 MB, Kroko ES ~150 MB y zipformer EN 2023 int8 ~70 MB. El código fuente
   de sherpa-onnx se compila en `var/tmp/sherpa-onnx` (`scripts/fetch-sherpa.sh`).
 
 ## 7. Manejo de errores
@@ -183,8 +190,9 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | **D10** | 2026-10-22 | El adaptador Moonshine **reintenta una vez** un resultado vacío recortando 200 ms de cada borde (tope ¼ del audio) | dos reintentos de 100/200 ms (triple inferencia: latencia > 1.2 s en la cola); no reintentar (pierde frases en duraciones desafortunadas) | conserva el texto en los spans vacíos del modelo y mantiene la cola de latencia dentro de S3.2; el `final` del adaptador expone `infer_s` y `retries` como diagnóstico (el núcleo los ignora en v1). Los vacíos genuinos (silencio) siguen devolviendo `""` |
 | **D11** | 2026-10-22 | Captura de micrófono en el **lado Android** con PulseAudio `module-sles-source` (OpenSL ES) + `parec` por pipe; helper `runas-ctx` para ejecutar como uid/contexto de Termux | ALSA en el chroot (HAL bloquea); termux-api en chunks AAC/hotfolder (cortes, decodificación y latencia); app Android propia (fuera de alcance) | PCM continuo s16le/16k/mono sin contenedor; requiere Termux:API + `RECORD_AUDIO` y setup root; la captura no se supervisa (si muere, EOF y cierre limpio del núcleo); hotfolder queda como alternativa futura. Verificado: S4.1, S4.2 (TTS acústico, 1.31–1.44 s) y S4.4 en la Sesión 006 |
 | **D12** | 2026-10-22 | Segundo motor: adaptador **`stt-adapter-whisper`** (C++ contra `whisper.cpp-libs` 1.9.3 del sistema, modelo `whisper-tiny`); objetivos **RTF ≤ 0.5** y **RSS < 350 MB**; moonshine sigue siendo el default | vendoring de whisper.cpp (coste de build en el teléfono); whisper en Python (rompe D1: runtime Go+C++); quedarse solo en inglés (razón de ser del stage de expansión) | multi-idioma (español) sin cambios de núcleo: la selección usa `--adapter`/`[adapter] cmd` ya existentes; whisper tiny es más pesado que Moonshine en este hardware (objetivos relajados en consecuencia); **→ SUSTITUIDO por D14 el mismo día: el motor del Stage 5 pasa a sherpa-onnx** |
-| **D13** | 2026-10-22 | **Salida remota**: `stt stream --out tcp://host:puerto` o `unix://ruta` transporta los mismos eventos `stt-events/1` con fan-out a N clientes; stdout sigue siendo el modo base | `tee`/proceso consumidor externo (parseo duplicado, frágil con pipes); salida a archivo (un solo consumidor); contrato nuevo `stt-events/2` (innecesario: el formato no cambia) | extiende **D3** de forma compatible (mismo NDJSON, transporte nuevo); la desconexión de un cliente no afecta al pipeline ni a los demás clientes; sobrecoste de latencia objetivo ≤ 10 ms; a verificar en S5.8 |
+| **D13** | 2026-10-22 | **Salida remota**: `stt stream --out tcp://host:puerto` o `unix://ruta` transporta los mismos eventos `stt-events/1` con fan-out a N clientes; stdout sigue siendo el modo base | `tee`/proceso consumidor externo (parseo duplicado, frágil con pipes); salida a archivo (un solo consumidor); contrato nuevo `stt-events/2` (innecesario: el formato no cambia) | extiende **D3** de forma compatible (mismo NDJSON, transporte nuevo); la desconexión de un cliente no afecta al pipeline ni a los demás clientes; sobrecoste de latencia objetivo ≤ 10 ms; verificado en S5.8 (implementación en D15) |
 | **D14** | 2026-10-22 | Motor del Stage 5: **sherpa-onnx streaming zipformer** (Kroko 2025 float, es/en; el int8 inicial se descartó en la Sesión 009), compilado desde fuente contra la `libonnxruntime` del sistema; **sustituye a whisper.cpp (D12)** como elección del Stage 5 | whisper.cpp (más preciso pero por segmentos: sin parciales, RTF 0.4–1.5 esperado en este SoC, latencia 1–3 s); mantener solo Moonshine (inglés); decodificador streaming propio sobre ORT (fbank + transducer: demasiado alcance) | streaming nativo con **parciales palabra a palabra** (capability `partial`, cableada desde S3.5); RTF ≤ 0.35 y RSS < 300 MB; español sin cambios de núcleo (`--adapter`); moonshine sigue default; whisper.cpp queda como opción futura de máxima precisión. Decisión del usuario (Sesión 007) |
+| **D15** | 2026-10-23 | Implementación del **fan-out** de D13: listener TCP/Unix abierto antes de `start`, replay de `start` a clientes tardíos, cola acotada por cliente (256 líneas; cliente lento se desconecta solo), drenaje acotado del `eof` al cerrar y socket Unix borrado al salir | `tee` (no soporta varios consumidores remotos ni desconexión aislada); broadcast bloqueante (un cliente lento pararía el pipeline); sin replay (los clientes tardíos pierden la cabecera) | S5.8 verificado con 2 clientes + cliente tardío: eventos idénticos, desconexión aislada, p95 de sobrecoste 0.2–0.8 ms (máximo con jitter de scheduler ≤ 23 ms); `STT_FANOUT_DEBUG=1` deja trazas en stderr |
 
 ---
 

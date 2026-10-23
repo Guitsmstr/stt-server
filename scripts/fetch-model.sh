@@ -151,6 +151,12 @@ elif [ "$MODEL" = "kroko-en" ] || [ "$MODEL" = "kroko-es" ]; then
     download "$BASE_URL/decoder.onnx" decoder.onnx "$DEC_SHA" 617488
     download "$BASE_URL/joiner.onnx" joiner.onnx "$JOIN_SHA" 336817
     download "$BASE_URL/tokens.txt" tokens.txt "$TOK_SHA" "$TOK_SZ"
+    # Shared test clip (22.05 kHz) used by the S5.4 Spanish coverage check.
+    # Only the ES repo is pinned: the test resamples it to 16 kHz with sox.
+    if [ "$MODEL" = "kroko-es" ]; then
+        download "$BASE_URL/test_wavs/0.wav" test_wav0.wav \
+            49fd2cfa4b62db7068143c582b35de9d31ec2733495ece3611105131d21de06c 235052
+    fi
 elif [ "$MODEL" = "zipformer-en" ]; then
     # sherpa-onnx streaming zipformer EN 2023-06-26, int8 export (fallback EN
     # engine). sha256 pinned from the local cache, verified 2026-10-23.
