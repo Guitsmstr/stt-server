@@ -11,10 +11,11 @@
 #   --device NAME  --latency-ms N  --no-start-server  --check
 #
 # --engine NAME expands to the adapter/model pair of a known engine
-# (moonshine = config default; sherpa = streaming zipformer en, --partials on).
-# Anything after `--` goes verbatim to `stt stream` and wins over the preset
-# (Go flags: last one wins), e.g. `--engine sherpa -- --partials=false`.
-# With no --engine and no explicit --adapter, config/stt.toml decides.
+# (moonshine = config default; sherpa = streaming zipformer en, --partials on;
+# sherpa-es = kroko es, float). Anything after `--` goes verbatim to
+# `stt stream` and wins over the preset (Go flags: last one wins), e.g.
+# `--engine sherpa -- --partials=false`. With no --engine and no explicit
+# --adapter, config/stt.toml decides.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -82,8 +83,10 @@ case "${ENGINE:-}" in
                # partials on by default unless the caller brings their own
                # (--partials or --partials=false after `--`).
                case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
+    sherpa-es) ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-es"
+               case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
     echo)      ENGINE_ARGS="--adapter adapters/echo/stt-adapter-echo" ;;
-    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|echo)" >&2; exit 2 ;;
+    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|sherpa-es|echo)" >&2; exit 2 ;;
 esac
 
 # --check/--list are capture-only shortcuts.
