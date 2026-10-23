@@ -201,6 +201,12 @@ func TestNoVADFixedFrames(t *testing.T) {
 			t.Fatalf("segment %d: Speech=false with VAD off", i)
 		}
 	}
+	// The trailing short frame must also be speech with VAD off: the nucleus
+	// drops non-speech segments, so marking it false lost the end of files
+	// whose length is not a multiple of FrameMs (regression found in S5.4).
+	if last := segs[len(segs)-1]; !last.Speech {
+		t.Fatal("trailing short frame: Speech=false with VAD off")
+	}
 }
 
 // A short word onset just before a boundary dip must survive: either its

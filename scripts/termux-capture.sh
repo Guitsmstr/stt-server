@@ -205,7 +205,7 @@ export TMPDIR=\$PREFIX/tmp
 export LD_LIBRARY_PATH=\$PREFIX/lib
 export PULSE_RUNTIME_PATH=$HOME_TERMUX/.stt/pulse
 exec \$PREFIX/bin/runas-ctx $TERMUX_UID '$TERMUX_CTX' \$PREFIX/bin/pulseaudio \\
-    -n --exit-idle-time=-1 --disallow-exit --daemonize=no --log-target=stderr \\
+    -n --exit-idle-time=30 --daemonize=no --log-target=stderr \\
     --load="module-sles-source source_name=$SOURCE rate=$RATE channels=$CHANNELS" \\
     --load="module-native-protocol-tcp auth-anonymous=1 listen=127.0.0.1 port=$PORT"
 EOF
@@ -214,7 +214,7 @@ EOF
         SERVER_PID=$!
     else
         PULSE_RUNTIME_PATH="$RUNTIME" "$PREFIX/bin/pulseaudio" \
-            -n --exit-idle-time=-1 --disallow-exit --daemonize=no --log-target=stderr \
+            -n --exit-idle-time=30 --daemonize=no --log-target=stderr \
             --load="module-sles-source source_name=$SOURCE rate=$RATE channels=$CHANNELS" \
             --load="module-native-protocol-tcp auth-anonymous=1 listen=127.0.0.1 port=$PORT" \
             > "$LOG" 2>&1 &
@@ -250,27 +250,45 @@ EOF
 
 stop_server() {
     [ "$SERVER_STARTED" = 1 ] || return 0
-    if [ -n "$SERVER_PID" ]; then
-        kill "$SERVER_PID" 2>/dev/null || true
-    fi
+    # Kill the PulseAudio child by its unique source name first: the wrapper
+    # (nsenter -> sh -> runas-ctx -> pulseaudio) does not forward signals, so
+    # killing only $SERVER_PID leaves an orphan server behind (observed as a
+    # stale stt_mic_* daemon after an interrupted session). Escalate to KILL
+    # and verify; the wrapper is then matched through its start-script path.
+    pkill -TERM -f "[s]ource_name=$SOURCE" 2>/dev/null || true
+    [ -n "${SERVER_PID:-}" ] && kill -TERM "$SERVER_PID" 2>/dev/null || true
+    [ -n "${START_SCRIPT:-}" ] && pkill -TERM -f "$START_SCRIPT" 2>/dev/null || true
+    i=0
+    while pgrep -f "[s]ource_name=$SOURCE" >/dev/null 2>&1 && [ "$i" -lt 20 ]; do
+        sleep 0.05
+        i=$((i + 1))
+    done
+    pkill -KILL -f "[s]ource_name=$SOURCE" 2>/dev/null || true
+    [ -n "${SERVER_PID:-}" ] && kill -KILL "$SERVER_PID" 2>/dev/null || true
+    [ -n "${START_SCRIPT:-}" ] && pkill -KILL -f "$START_SCRIPT" 2>/dev/null || true
     if [ "$MODE" = android ]; then
-        pkill -f "[s]ource_name=$SOURCE" 2>/dev/null || true
-        [ -n "$START_SCRIPT" ] && rm -f "$ANDROID_ROOT$START_SCRIPT"
+        [ -n "${START_SCRIPT:-}" ] && rm -f "$ANDROID_ROOT$START_SCRIPT"
         rm -rf "$ANDROID_ROOT$RUNTIME"
     else
         rm -rf "$RUNTIME"
     fi
     SERVER_STARTED=0
     SERVER_PID=
+    START_SCRIPT=
 }
 
 cleanup() {
+    # A second Ctrl-C/TERM while cleanup runs must not abort the cleanup
+    # half-way (that is how the orphan server + start script survived).
+    trap '' INT TERM
     if [ -n "${PAREC_PID:-}" ]; then
         kill "$PAREC_PID" 2>/dev/null || true
+        PAREC_PID=
     fi
     stop_server
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
 
 list_info() {
     say "mode:     $MODE"

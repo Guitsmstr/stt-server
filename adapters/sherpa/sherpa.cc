@@ -5,11 +5,16 @@
 //   - loads a streaming zipformer (ONNX, sherpa-onnx C API)
 //   - emits "ready" declaring capabilities final + partial
 //   - reads length-prefixed PCM frames (s16le / 16 kHz / mono)
-//   - while decoding: emits "partial" whenever the interim text changes
+//   - while decoding: emits "partial" whenever the interim text of the
+//     current segment changes (text already covered by a final is excluded)
 //   - at the end of each frame: emits one "final" with the text newly
-//     decoded during that frame (same cadence as the moonshine adapter)
-//   - on sherpa endpoint detection: emits the whole utterance as "final"
-//     and resets the decoder (long-pause boundary)
+//     decoded during that frame (same cadence as the moonshine adapter).
+//     A small silence pad is appended to every frame (--frame-pad, default
+//     0.6 s) because the streaming transducer holds its right-context tail
+//     until more audio arrives; without it the last words of each VAD
+//     segment leaked into the next segment's final.
+//   - on sherpa endpoint detection: emits the remaining utterance text as
+//     "final" and resets the decoder (long-pause boundary)
 //   - on stdin EOF flushes the tail, emits "bye" and exits 0
 //
 // Model directory (--model DIR) must contain tokens.txt plus encoder,
@@ -58,6 +63,7 @@ struct Options {
     float rule1 = 2.4f; // trailing silence (s) with speech before it
     float rule2 = 1.2f; // trailing silence (s) after decoded utterance
     float rule3 = 20.0f; // utterance length (s) regardless of silence
+    float frame_pad = 0.6f; // trailing silence per frame (right-context flush)
 };
 
 // ---------------------------------------------------------------- utilities
@@ -270,31 +276,49 @@ void usage(FILE *f) {
                "       [--joiner FILE] [--tokens FILE] [--threads N] [--sample-rate N]\n"
                "       [--method greedy_search|modified_beam_search]\n"
                "       [--max-active-paths N] [--no-endpoint]\n"
-               "       [--rule1 S] [--rule2 S] [--rule3 S]\n"
+               "       [--rule1 S] [--rule2 S] [--rule3 S] [--frame-pad S]\n"
                "  --sample-rate: model training rate (default 16000). kroko-2025\n"
-               "      models need 22050; the 16 kHz contract PCM is resampled.\n",
+               "      models need 22050; the 16 kHz contract PCM is resampled.\n"
+               "  --frame-pad: silence appended to every input frame so the streaming\n"
+               "      transducer decodes its right-context tail before the next\n"
+               "      segment (default 0.6 s; 0 disables).\n",
                f);
 }
 
 // ---------------------------------------------------------------- main loop
 
-// Drains the decoder and emits a partial whenever the interim text changes.
+// Returns the part of `text` not yet covered by `baseline` (a final already
+// reported it). Falls back to the full text if the decoder diverged.
+std::string text_delta(const std::string &text, const std::string &baseline) {
+    if (text.size() >= baseline.size() &&
+        text.compare(0, baseline.size(), baseline) == 0) {
+        std::string delta = text.substr(baseline.size());
+        if (!delta.empty() && delta[0] == ' ') delta.erase(0, 1);
+        return delta;
+    }
+    return text;
+}
+
+// Drains the decoder and emits a partial whenever the interim text of the
+// current segment (the part not covered by earlier finals) changes.
 // Returns the current full utterance text.
 std::string drain(const SherpaOnnxOnlineRecognizer *rec,
                   const SherpaOnnxOnlineStream *stream, int frame,
-                  std::string *last_partial, double *infer_s) {
+                  std::string *last_partial, const std::string &baseline,
+                  double *infer_s) {
     const auto t0 = std::chrono::steady_clock::now();
     while (SherpaOnnxIsOnlineStreamReady(rec, stream)) {
         SherpaOnnxDecodeOnlineStream(rec, stream);
         const auto *r = SherpaOnnxGetOnlineStreamResult(rec, stream);
         std::string text = utf8_sanitize(r->text ? r->text : "");
         SherpaOnnxDestroyOnlineRecognizerResult(r);
-        if (!text.empty() && text != *last_partial) {
+        std::string delta = text_delta(text, baseline);
+        if (!delta.empty() && delta != *last_partial) {
             std::string body = "{\"type\":\"partial\",\"text\":\"";
-            json_cat(&body, text);
+            json_cat(&body, delta);
             body += "\",\"frame\":" + std::to_string(frame) + "}";
             emit_event(stdout, body);
-            *last_partial = text;
+            *last_partial = delta;
         }
     }
     *infer_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -320,18 +344,12 @@ void emit_final(const std::string &text, int frame, double infer_s, double dur_s
 // repeats text already sent in earlier finals.
 std::string emit_tail(const std::string &text, const std::string &baseline,
                       int frame, double infer_s, double dur_s) {
-    if (text.size() >= baseline.size() &&
-        text.compare(0, baseline.size(), baseline) == 0) {
-        std::string delta = text.substr(baseline.size());
-        if (!delta.empty() && delta[0] == ' ') delta.erase(0, 1);
-        if (!delta.empty()) {
-            emit_final(delta, frame, infer_s, dur_s);
-            return text;
-        }
-        return baseline;
+    std::string delta = text_delta(text, baseline);
+    if (!delta.empty()) {
+        emit_final(delta, frame, infer_s, dur_s);
+        return text;
     }
-    if (!text.empty()) emit_final(text, frame, infer_s, dur_s);
-    return text;
+    return baseline;
 }
 
 } // namespace
@@ -360,6 +378,7 @@ int main(int argc, char **argv) {
         else if (std::strcmp(argv[i], "--rule1") == 0) o.rule1 = std::atof(need("--rule1"));
         else if (std::strcmp(argv[i], "--rule2") == 0) o.rule2 = std::atof(need("--rule2"));
         else if (std::strcmp(argv[i], "--rule3") == 0) o.rule3 = std::atof(need("--rule3"));
+        else if (std::strcmp(argv[i], "--frame-pad") == 0) o.frame_pad = std::atof(need("--frame-pad"));
         else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             usage(stdout);
             return 0;
@@ -380,6 +399,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (o.max_active_paths <= 0) o.max_active_paths = 4;
+    if (o.frame_pad < 0.0f) o.frame_pad = 0.0f;
+    if (o.frame_pad > 5.0f) o.frame_pad = 5.0f;
 
     // Protocol header must be read before anything else (nucleus sends it
     // immediately after spawn; see CONTRATOS §2.2).
@@ -486,7 +507,18 @@ int main(int argc, char **argv) {
             SherpaOnnxOnlineStreamAcceptWaveform(stream, kSampleRate, samples.data(),
                                                  static_cast<int32_t>(n_samples));
         }
-        std::string text = drain(rec, stream, frame, &last_partial, &infer_s);
+        std::string text = drain(rec, stream, frame, &last_partial, baseline, &infer_s);
+        // Per-frame silence pad: see the header comment and the EOF pad below.
+        // The nucleus drops the silence between VAD segments, so the model's
+        // right-context tail never got flushed at the end of a phrase; its
+        // last words were only decoded when the next segment arrived.
+        if (o.frame_pad > 0.0f) {
+            const size_t pad_samples = static_cast<size_t>(kSampleRate * o.frame_pad);
+            std::vector<float> pad(pad_samples, 0.0f);
+            SherpaOnnxOnlineStreamAcceptWaveform(stream, kSampleRate, pad.data(),
+                                                 static_cast<int32_t>(pad.size()));
+            text = drain(rec, stream, frame, &last_partial, baseline, &infer_s);
+        }
         total_infer += infer_s;
 
         if (o.endpoint && SherpaOnnxOnlineStreamIsEndpoint(rec, stream)) {
@@ -510,16 +542,19 @@ int main(int argc, char **argv) {
     // EOF: VAD-based segmenters drop trailing silence, so (a) the last words
     // may still sit inside the transducer's right-context window and (b) an
     // open utterance never sees the pause that would trigger the endpoint.
-    // Feed one silence pad covering both, emit the tail (never re-emitting
-    // covered text), then flush the stream.
-    {
-        const float pad_s = !o.endpoint ? 1.5f : (o.rule2 > 1.5f ? o.rule2 : 1.5f);
-        std::vector<float> pad(static_cast<size_t>(kSampleRate * pad_s), 0.0f);
+    // With the per-frame pad (above) the tail is already decoded and another
+    // 1.5 s of silence only risks a hallucinated word (observed: "...(better)
+    // than"); keep the old EOF pad only when per-frame padding is disabled.
+    const float eof_pad_s =
+        o.frame_pad > 0.0f ? 0.0f
+                           : (!o.endpoint ? 1.5f : (o.rule2 > 1.5f ? o.rule2 : 1.5f));
+    if (eof_pad_s > 0.0f) {
+        std::vector<float> pad(static_cast<size_t>(kSampleRate * eof_pad_s), 0.0f);
         SherpaOnnxOnlineStreamAcceptWaveform(stream, kSampleRate, pad.data(),
                                              static_cast<int32_t>(pad.size()));
         double pad_infer = 0.0;
         std::string pad_text = drain(rec, stream, frame > 0 ? frame - 1 : 0,
-                                     &last_partial, &pad_infer);
+                                     &last_partial, baseline, &pad_infer);
         total_infer += pad_infer;
         if (o.endpoint && SherpaOnnxOnlineStreamIsEndpoint(rec, stream)) {
             baseline = emit_tail(pad_text, baseline, frame > 0 ? frame - 1 : 0,
@@ -535,7 +570,7 @@ int main(int argc, char **argv) {
     SherpaOnnxOnlineStreamInputFinished(stream);
     double tail_infer = 0.0;
     std::string text = drain(rec, stream, frame > 0 ? frame - 1 : 0, &last_partial,
-                             &tail_infer);
+                             baseline, &tail_infer);
     total_infer += tail_infer;
     if (frame > 0) baseline = emit_tail(text, baseline, frame - 1, tail_infer, 0.0);
 

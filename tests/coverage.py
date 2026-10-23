@@ -10,7 +10,11 @@ real losses (dropped words/phrases), not spelling.
 
 Usage:
   python3 tests/coverage.py REPORT.json [--repeats N] [--speech-s S]
-      [--gaps 0.3,0.6,...] [--threshold PCT] [--json]
+      [--gaps 0.3,0.6,...] [--threshold PCT] [--ref "text"] [--single] [--json]
+
+`--ref` overrides the English Beckett reference (needed for the Spanish S5.4
+clip). `--single` scores all finals of the report once, without the Stage 3
+repeat windows (use it for a one-shot ES/EN recording).
 
 Exit code 1 when the mean coverage is below --threshold (default 0).
 """
@@ -41,16 +45,16 @@ def tolerance(word):
     return 1 if len(word) <= 4 else 2
 
 
-def score(got):
+def score(got, ref):
     i = matched = 0
-    for want in REF:
+    for want in ref:
         j = i
         while j < len(got) and levenshtein(got[j], want) > tolerance(want):
             j += 1
         if j < len(got):
             matched += 1
             i = j + 1
-    return matched / len(REF)
+    return matched / len(ref)
 
 
 def main():
@@ -60,6 +64,10 @@ def main():
     ap.add_argument("--speech-s", type=float, default=9.963375)
     ap.add_argument("--gaps", default="0.3,0.6,0.9,1.2,0.5")
     ap.add_argument("--threshold", type=float, default=0.0)
+    ap.add_argument("--ref", default=" ".join(REF),
+                    help="reference transcript (default: English Beckett phrase)")
+    ap.add_argument("--single", action="store_true",
+                    help="score all finals once (no repeat windows)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     threshold = args.threshold / 100.0 if args.threshold > 1 else args.threshold
@@ -72,17 +80,24 @@ def main():
 
     data = json.load(open(args.report))
     finals = data["finals"]
-    scores = []
-    for r in range(args.repeats):
-        # Include finals crossing either edge: a segment may span the gap.
-        lo = starts[r] - 0.3
-        hi = starts[r] + periods[r % len(periods)] + 0.3
+    ref = args.ref.split()
+    if args.single:
         got = []
         for f in finals:
-            t0, t1 = f.get("t0") or 0, f.get("t1") or 0
-            if t0 < hi and t1 > lo:
-                got += words(f.get("text", ""))
-        scores.append(score(got))
+            got += words(f.get("text", ""))
+        scores = [score(got, ref)]
+    else:
+        scores = []
+        for r in range(args.repeats):
+            # Include finals crossing either edge: a segment may span the gap.
+            lo = starts[r] - 0.3
+            hi = starts[r] + periods[r % len(periods)] + 0.3
+            got = []
+            for f in finals:
+                t0, t1 = f.get("t0") or 0, f.get("t1") or 0
+                if t0 < hi and t1 > lo:
+                    got += words(f.get("text", ""))
+            scores.append(score(got, ref))
 
     scores.sort()
     mean = sum(scores) / len(scores)
@@ -91,7 +106,7 @@ def main():
         "median": round(scores[len(scores) // 2], 4),
         "min": round(scores[0], 4),
         "max": round(scores[-1], 4),
-        "repeats": args.repeats,
+        "repeats": 1 if args.single else args.repeats,
         "transcribed_words": sum(len(words(f.get("text", ""))) for f in finals),
     }
     if args.json:

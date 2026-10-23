@@ -1,8 +1,8 @@
 # PREREQUISITOS — entorno de desarrollo
 
 Entorno objetivo y de desarrollo: **este mismo dispositivo** (Alpine 3.24,
-musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
-(Sesión 006)**.
+musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-23
+(Sesión 011)**.
 
 ## 1. Toolchain
 
@@ -11,7 +11,7 @@ musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
 | `go` 1.26.9 | núcleo | ✅ instalado | `apk add go` (si hiciera falta) |
 | `gcc`/`g++` 15.2 | adaptadores C++ | ✅ instalado | `apk add build-base` |
 | `make` | builds | ✅ instalado | — |
-| `cmake` | builds C++ (whisper.cpp, etc.) | ✅ instalado | `apk add cmake` |
+| `cmake` | builds C++ (sherpa-onnx, etc.) | ✅ instalado | `apk add cmake` |
 | `pkgconf` | localizar libs | ✅ instalado | `apk add pkgconf` |
 | `libonnxruntime.so` 1.24.4 | runtime de inferencia | ✅ instalado | `apk add onnxruntime` |
 | headers de onnxruntime | compilar adaptadores | ✅ instalado | `apk add onnxruntime-dev` |
@@ -24,12 +24,17 @@ musl, aarch64, chroot root sobre Android). Última verificación: **2026-10-22
 | `ffmpeg` | diagnóstico/decodificación opcional | ✅ instalado | `apk add ffmpeg`; **no** es necesario para el pipe v1 |
 | `pulseaudio` + `pactl` + `parec` (Termux) | captura por OpenSL ES | ✅ instalado | paquete de Termux; el setup no los instala |
 
-**Instalación pendiente en un solo comando** (ejecutar al inicio del Stage 1):
+**Instalación de la toolchain (Stage 1) en un solo comando**:
 ```sh
 apk add cmake pkgconf onnxruntime-dev jq
 ```
 ✅ Ejecutado el 2026-10-22 (Sesión 002): toolchain completa y verificada
 (`g++` compila el adaptador eco con `-Wall -Wextra` sin warnings; `go vet` limpio).
+
+El build de **sherpa-onnx** (Stage 5) usa el mismo toolchain: `scripts/fetch-sherpa.sh`
+clona v1.13.8 en `var/tmp/sherpa-onnx` y compila estático contra `libonnxruntime`
+del sistema (parche local `-include cstdint` para GCC 15/musl). `make models` lo
+ejecuta; la primera vez tarda varios minutos y es idempotente (`--offline`).
 
 El runtime (núcleo Go + adaptadores C++) **no usa Python**; Python 3 solo se
 usa en `tests/` (feeder, métricas de cobertura/latencia). No se necesita Rust,
@@ -83,10 +88,14 @@ Arranque/verificación:
 | Moonshine tiny (ONNX merged: `encoder_model.onnx` + `decoder_model_merged.onnx`) | HF `moonshine-ai/moonshine` (antes `UsefulSensors/moonshine`), `onnx/merged/tiny/float` | 30.9 + 78.2 MB | ✅ en `var/models/moonshine-tiny` (Sesión 003) |
 | Tokenizer (para decodificar ids → texto) | HF `moonshine-ai/moonshine`, `ctranslate2/tiny/tokenizer.json` | 2.0 MB | ✅ cacheado + `vocab.tsv` generado (32000 entradas) |
 | Moonshine base (opcional, mejor calidad) | HF `onnx/merged/base/float` | ~100 MB | pendiente (no soportado por el fetch v1) |
+| Kroko EN 2025 (streaming zipformer, float, 24 kHz) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06` | ~68 MB | ✅ `var/models/sherpa-zipformer-en-kroko` (Sesión 009) |
+| Kroko ES 2025 (streaming zipformer, float, 22.05 kHz) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06` | ~149 MB | ✅ `var/models/sherpa-zipformer-es` (Sesión 009) |
+| Zipformer EN 2023 (streaming, int8, fallback) | HF `csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26` | ~69 MB | ✅ `var/models/sherpa-zipformer-en` (Sesión 009) |
 
-Destino de cache del proyecto: `var/models/moonshine-tiny/` vía
-`scripts/fetch-model.sh` (idempotente, verifica sha256; `--offline` para
-comprobar la caché sin red). El núcleo **nunca** descarga modelos.
+Destino de cache del proyecto: `var/models/moonshine-tiny/` y
+`var/models/sherpa-zipformer-*/` vía `scripts/fetch-model.sh` (idempotente,
+verifica sha256; `--offline` para comprobar la caché sin red). Para sherpa:
+`--model kroko-en|kroko-es|zipformer-en`. El núcleo **nunca** descarga modelos.
 
 ## 4. Verificación rápida del entorno
 
@@ -108,6 +117,7 @@ echo 'int main(){return 0;}' > /tmp/t.cc && g++ /tmp/t.cc -o /tmp/t && /tmp/t &&
 | Tiempo de carga del modelo (Stage 2) | ~2.4 s (threads=4) |
 | **Cobertura Stage 3 (5 min, VAD)** | **96.9 % por repetición** (sin VAD 85.3 %) |
 | **Latencia Stage 3 (steady-state)** | **máx 0.531 s, p95 0.497 s, media 0.446 s** |
+| **Sherpa Kroko EN 2025 (ruta completa, frames 5 s; Sesiones 009–010)** | **RTF 0.16–0.29; RSS 162 MB; carga ~13 s** |
 | **Captura Stage 4 (S4.1)** | **8.5 s de PCM real; RMS 97.2, peak 409 en la suite final** (otras corridas 90–780 RMS; Sesión 006) |
 | **Latencia Stage 4 (S4.2, TTS acústico)** | **1.307 s** `arrival − t1` en la suite final (1.438 s en corrida limpia; objetivo ≤ 3 s) |
 | RAM del stack Python validado | no medida; el objetivo C++ es RSS < 300 MB con modelo |

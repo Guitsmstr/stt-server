@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 5 — 🟦 en ejecución (Sesión 009)** |
-| **Última actualización** | 2026-10-23 (Sesión 009) |
-| **Siguiente paso** | **S5.4** — transcripción es/en sobre archivo con cobertura fuzzy ≥ 80 % (EN: beckett ya literal tras Sesión 009; falta clip ES por TTS + script de cobertura) y luego **S5.5** (RTF/RSS con frames de 5 s) |
+| **Stage actual** | **Stage 5 — 🟦 en ejecución (Sesión 011)** |
+| **Última actualización** | 2026-10-23 (Sesión 011) |
+| **Siguiente paso** | **S5.4** (Sesión 012) — transcripción es/en sobre archivo con cobertura fuzzy ≥ 80 % (EN: beckett ya literal tras Sesión 009; falta clip ES por TTS + medición) y luego **S5.5** (RTF/RSS con frames de 5 s) |
 
 ## Estado de stages
 
@@ -19,7 +19,7 @@
 | 2 | Adaptador C++ Moonshine (primer motor) | ✅ cerrado |
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
-| 5 | Expansión (sherpa-onnx + salida remota) | 🟦 definido (Sesión 007; motor cambiado a sherpa-onnx por el usuario — D14); se ejecuta tras cerrar Stage 4 |
+| 5 | Expansión (sherpa-onnx + salida remota) | 🟦 en ejecución (Sesión 011): S5.3 + S5.6 ✅; S5.4/S5.5 y S5.7–S5.9 pendientes |
 
 ---
 
@@ -131,11 +131,12 @@ máxima precisión.
 Específicos:
 - [x] **S5.1** Alcance definido y registrado en `docs/PLAN.md` — aprobado por el usuario (Sesión 007): A (segundo motor; whisper.cpp → **sherpa-onnx**, D14) + B (`--out`); sesiones múltiples fuera de alcance
 - [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.9 en esta sección
-- [ ] **S5.3** `stt-adapter-sherpa` compila sherpa-onnx desde fuente contra `libonnxruntime` del sistema (`-Wall -Wextra`; prebuilt glibc no sirve en musl) y completa el handshake `stt-adapter/1` declarando capabilities `final` + `partial`
 - [x] **S5.3** Compilación + handshake **OK** (Sesión 008): sherpa-onnx **v1.13.8** clonado en `var/tmp/sherpa-onnx` y compilado desde fuente (estático, cmake Release) contra `libonnxruntime` 1.24.4 del sistema; parche local `-include cstdint` (GCC 15/musl deja de heredar `<cstdint>` transitivamente; ~500 TUs afectados) vía `scripts/fetch-sherpa.sh` (idempotente, `--offline`). Adaptador `adapters/sherpa/` (`sherpa.cc` + Makefile, `-Wall -Wextra` sin warnings, binario estático 5 MB + ORT del sistema): auto-detección de archivos del modelo (prefiere int8), `--model/--encoder/--decoder/--joiner/--tokens/--threads/--no-endpoint/--rule{1,2,3}`. Handshake verificado: `ready` con `"capabilities":["final","partial"]`, `error` fatales por header/audio/modelo ausente, `bye` con `rss_kb`. E2E con `tests/feed_stream.py` (`--speed 2 --partials`): 6 finales + 12 parciales palabra a palabra a través del núcleo, texto Beckett correcto ("Ever tried. Ever failed. No matter..."); RSS adaptador 136 MB; RTF crudo 0.21–0.48 en frames de 2 s (limitado; S5.5 mide en condiciones del check con frames de 5 s)
 - [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS) — nota Sesión 009: EN beckett ya se transcribe **literal** con `sherpa` (kroko EN 2025 + 2 fixes del adaptador, ver bitácora); falta el clip ES y la medición fuzzy formal
 - [ ] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames de 5 s) — nota Sesión 009: kroko EN rtf 0.16–0.29 y RSS 162 MB en la ruta completa (indicio favorable; medición formal pendiente)
 - [x] **S5.6** Cache de modelos idempotente en `var/models/sherpa-zipformer-{es,en}/` (2ª corrida con `--offline`) — Sesión 009: `fetch-model.sh --model kroko-es|kroko-en|zipformer-en` con sha256 pinneado; las 4 corridas `--offline` imprimen `cached:` y `model ready:` (evidencia en bitácora); `make models` descarga tiny + los 3 zipformer
+
+> `make test-stage5` ejecuta un smoke **parcial** (S5.3/S5.6: carga EN/ES + `final` + `partial`) en `tests/run-stage5-tests.sh`; las mediciones formales S5.4/S5.5 y los checks S5.7–S5.9 siguen pendientes (Sesión 012).
 - [ ] **S5.7** Selección de motor por config/flag; moonshine sigue siendo el default; regresión de stages 1–4 en verde
 - [ ] **S5.8** `--out tcp://…` (y `unix://…`): 2 clientes simultáneos reciben los mismos eventos NDJSON; sobrecoste de latencia ≤ 10 ms; la desconexión de un cliente no afecta al pipeline ni al otro
 - [ ] **S5.9** Partials end-to-end (demo karaoke): con `[output] partials = true`, `stt-captions` muestra texto interim **mientras se habla** y el `final` final confirma el segmento (cierra lo dejado pendiente en S3.5)
@@ -145,6 +146,97 @@ Generales G1–G6: al ejecutar
 ---
 
 ## Bitácora
+
+### Sesión 011 — 2026-10-23
+**Alcance**: auditoría de los stages 0–4 y housekeeping de documentación/estado, sin avanzar S5.4–S5.9.
+
+**Auditoría**:
+- Stages 0–4: todos los checks S0.1–S0.5, S1.1–S1.5, S2.1–S2.5, S3.1–S3.5 y S4.1–S4.4 están marcados; no hay checks funcionales abiertos. `make test` (Go + Stage 1) verde.
+- No hay TODOs/FIXMEs en código. Los "pendiente" que quedan en la bitácora son históricos (S4.3 se cerró en la Sesión 007) o decisiones futuras explícitas (Moonshine base).
+- Encontrados y corregidos: checkbox S5.3 duplicado; estados desfasados en README/PLAN/PROGRESO; textos "S4.3 pendiente" en CONTRATOS/OPERACION; `tests/run-stage5-tests.sh` inexistente aunque `make test-stage5` lo invocaba; `tests/coverage.py` con referencia EN fija; tamaño del cache de modelos desactualizado en README (~109 MB → ~393 MB).
+
+**Cambios**:
+- `PROGRESO.md`: estado actual, S5.3 único, nota de `test-stage5` parcial y esta bitácora.
+- `README.md`, `docs/PLAN.md`, `docs/ARQUITECTURA.md`, `docs/CONTRATOS.md`, `docs/OPERACION.md`, `docs/PREREQUISITOS.md`: sincronización de Stage 5 (sherpa/Kroko float), partials, modelos cacheados, S4.3 cerrado y estado general.
+- `tests/run-stage5-tests.sh` (nuevo): smoke parcial S5.3/S5.6 (carga EN/ES, `final` + `partial`); imprime los checks formales pendientes.
+- `tests/coverage.py`: opciones `--ref` y `--single` para preparar la medición ES de S5.4.
+
+**Evidencia**: `make test-stage5` (smoke) y `python3 -m py_compile tests/coverage.py`; `make test` verde.
+
+**Siguiente paso**: **S5.4** en una sesión nueva — clip ES por TTS, cobertura fuzzy EN/ES ≥ 80 %; luego S5.5 (RTF/RSS formal con frames de 5 s).
+
+### Sesión 010 — 2026-10-23
+**Alcance**: reporte del usuario en `stt-captions --engine sherpa`: (a) posibles
+procesos residuales de motores; (b) las últimas palabras de una frase no
+aparecían hasta la frase siguiente.
+
+**Diagnóstico (procesos)**:
+- No había adaptadores (`stt-adapter-*`) ni `stt` vivos. Sí un `nsenter` +
+  `pulseaudio` huérfano (`source_name=stt_mic_4722`), su
+  `/data/local/tmp/stt-pa-start.6758.sh` y el runtime de Termux. Limpiados a mano
+  junto con FIFOs viejos (`var/tmp/stage4/mic.*.fifo`).
+- Causa: el wrapper android (`nsenter` → `sh` → `runas-ctx` → `pulseaudio`) no
+  reenvía señales; matar solo `SERVER_PID` deja el servidor huérfano. Además un
+  segundo Ctrl-C durante `cleanup` podía abortar el trap (el start script no se
+  borraba) y PA usaba `--disallow-exit` (inmortal sin clientes).
+
+**Diagnóstico (palabras perdidas, confirmado con probe al adaptador sobre
+beckett)**:
+- El transducer streaming retiene ~0.5 s de contexto derecho. El VAD del núcleo
+  descarta el silencio entre segmentos, así que la cola de cada segmento se
+  quedaba en el decoder y solo se decodificaba al llegar el frame siguiente
+  (mismo mecanismo que la cola de EOF corregida en la Sesión 009). Probe de un
+  frame: con 0.4 s de pad no hay `final`; con 0.5 s aparece el texto completo.
+- Los `partial` de sherpa mostraban el enunciado acumulado completo (no el
+  segmento actual) mientras el `final` era solo el delta; visualmente parecía
+  que faltaba texto y luego se pegaba a la frase siguiente.
+
+**Cambios**:
+- `adapters/sherpa/sherpa.cc`: nuevo `--frame-pad S` (default 0.6 s; 0
+  desactiva) que añade silencio al final de **cada** frame antes de comprobar el
+  endpoint y emitir el `final`; `partial.text` pasa a ser el delta no cubierto
+  por finales (helper `text_delta`, compartido con `emit_tail`). El pad de EOF
+  de 1.5 s se omite cuando `--frame-pad` está activo: la cola ya está decodificada
+  y más silencio producía una palabra alucinada ("… fail better **than**").
+  Cabecera y usage actualizados. Build `-Wall -Wextra` limpio.
+- `core/internal/segment`: con `--vad=false`, el frame corto final se marcaba
+  `Speech=false` y el núcleo lo descartaba (se perdía el final de todo WAV cuya
+  duración no es múltiplo de `frame_ms`; destapado al probar la ruta de 5 s).
+  Ahora se marca siempre como habla y `TestNoVADFixedFrames` lo verifica.
+- `scripts/termux-capture.sh`: `stop_server` mata primero por `source_name`
+  (TERM→KILL con verificación `pgrep`) y también el wrapper por su start script;
+  `cleanup` ignora INT/TERM mientras corre; PulseAudio con `--exit-idle-time=30`
+  (sin `--disallow-exit`) como red de seguridad.
+- `scripts/stt-mic.sh` y `scripts/stt-captions.sh`: traps idempotentes, ignoran
+señales durante el teardown y salen con 130 en INT/TERM/HUP.
+- `docs/OPERACION.md` (teardown + fila de troubleshooting) y `docs/CONTRATOS.md`
+(semántica de `partial` + pad por frame).
+
+**Evidencia**:
+- Probe adaptador (beckett completo, un frame): pad default → `final` completo al
+terminar el frame; `--frame-pad 0` → sin final (cola retenida).
+- Dos frames (corte artificial a 4.5 s): `final frame 0 = "ever tried, ever
+failed."`, `partial frame 1 = "No matter"…` (delta, no el acumulado), `final
+frame 1 = "No matter. Try again. Fail again fail better"`.
+- E2E `tests/feed_stream.py` (beckett, VAD, `--partials`, frames de 5 s): 6
+  finales que concatenan «ever tried, ever failed, no matter. Try again. Fail
+  again fail better» sin cola perdida; `fail better` llega en su propio segmento
+  (7.96–8.91 s), no en el siguiente.
+- `scripts/termux-capture.sh --check` dos veces: arranca PA, lista la fuente y al
+salir no queda `pulseaudio`/`nsenter`, ni start script, ni runtime. Test de
+idle-exit con el wrapper muerto: PA sale solo a los ~30 s (red de seguridad).
+- `make test`: Go tests + Stage 1 ALL OK. `stt once` con VAD off y
+  `--frame-ms 5000` devuelve ahora los dos finales completos («ever tried, ever
+  failed. No matter,» + «try again. Fail again fail better»), sin el «than»
+  alucinado que añadía el pad de EOF redundante.
+
+**Archivos tocados**: `adapters/sherpa/sherpa.cc`,
+`core/internal/segment/{segment.go,segment_test.go}`,
+`scripts/{termux-capture,stt-mic,stt-captions}.sh`, `docs/{OPERACION,CONTRATOS}.md`,
+`PROGRESO.md`.
+
+**Siguiente paso**: sin cambios (S5.4/S5.5). Repetir la demo de `stt-captions`
+con voz real para confirmar el arreglo en el dispositivo.
 
 ### Sesión 009 — 2026-10-23
 **Alcance**: precisión del motor sherpa (reporte del usuario: «moonshine es más preciso que sherpa»). Diagnóstico A/B, dos bugs del adaptador corregidos, motor EN cambiado a kroko 2025 y **S5.6** cerrado.

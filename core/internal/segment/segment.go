@@ -268,7 +268,10 @@ func Segments(ctx context.Context, r io.Reader, o Options) <-chan Segment {
 			}
 
 			if err != nil { // EOF: flush the trailing partial region
-				if len(pending) > 0 && !emit(len(pending), !inPause) {
+				// With VAD off this region is still speech (fixed framing);
+				// marking it non-speech dropped the last short frame of every
+				// WAV whose length is not an exact multiple of FrameMs.
+				if len(pending) > 0 && !emit(len(pending), !o.VAD || !inPause) {
 					return
 				}
 				return

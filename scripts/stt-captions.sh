@@ -136,9 +136,13 @@ FIFO_EV="$ROOT/var/tmp/demo/events.$$.fifo"
 mkfifo "$FIFO_EV"
 MIC_PID=
 cleanup_mic() {
+    # Do not let a second Ctrl-C interrupt the teardown: stt-mic/termux-capture
+    # rely on this signal to stop their own children.
+    trap '' INT TERM
     if [ -n "${MIC_PID:-}" ]; then
         kill "$MIC_PID" 2>/dev/null || true
         wait "$MIC_PID" 2>/dev/null || true
+        MIC_PID=
     fi
     rm -f "$FIFO_EV"
 }

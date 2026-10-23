@@ -12,7 +12,7 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 
 | | |
 |---|---|
-| **Estado** | Stage 4 — entrada de audio real ✅ cerrado; Stage 5 en ejecución (Sesión 008): sherpa-onnx (streaming, parciales; S5.3 ✅) + salida remota pendiente (ver [`PROGRESO.md`](PROGRESO.md)) |
+| **Estado** | Stage 5 — en ejecución (Sesión 011): sherpa-onnx streaming ES/EN (S5.3/S5.6 ✅); faltan S5.4/S5.5 (mediciones) y S5.7–S5.9 (`--out`, karaoke, regresión). Ver [`PROGRESO.md`](PROGRESO.md). |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -45,11 +45,12 @@ stt/
 
 ```sh
 make core adapters          # núcleo Go + adaptadores C++
-make models                 # descarga idempotente en var/models/ (~109 MB)
+make models                 # cache idempotente en var/models/ (~393 MB; incluye build de sherpa-onnx la 1ª vez)
 make test                   # tests Go + smoke Stage 1 (echo)
 make test-stage2            # S2.1–S2.5 (Moonshine real, RTF y RSS)
 make test-stage3            # S3.1–S3.5 (streaming 5/30 min, latencia, VAD, RSS)
 make test-stage4            # S4.1–S4.4 (micrófono real + TTS acústico)
+make test-stage5            # smoke sherpa (S5.3/S5.6); S5.4/S5.5/S5.7–S5.9 pendientes
 
 # one-shot (WAV PCM s16le 16 kHz mono)
 ./var/bin/stt once --adapter adapters/moonshine/stt-adapter-moonshine \
@@ -66,6 +67,9 @@ sh scripts/termux-mic-setup.sh
 
 # subtítulos en vivo en la terminal (el mismo pipeline, salida bonita)
 ./scripts/stt-captions.sh
+
+# subtítulos con sherpa (parciales en vivo, ES/EN)
+./scripts/stt-captions.sh --engine sherpa
 ```
 
 El micrófono no es accesible por ALSA desde el chroot: la captura corre en el

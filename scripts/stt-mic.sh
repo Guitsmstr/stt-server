@@ -107,14 +107,20 @@ mkfifo "$FIFO"
 CAP_PID=
 STT_PID=
 cleanup() {
+    # Ignore further signals while tearing down: a second Ctrl-C used to
+    # abort the cleanup half-way and leave capture/server children behind.
+    trap '' INT TERM
     [ -n "${STT_PID:-}" ] && kill "$STT_PID" 2>/dev/null || true
     [ -n "${CAP_PID:-}" ] && kill "$CAP_PID" 2>/dev/null || true
+    STT_PID=
+    CAP_PID=
     rm -f "$FIFO"
     if [ -f "$PIDFILE" ] && [ "$(cat "$PIDFILE" 2>/dev/null)" = "$$" ]; then
         rm -f "$PIDFILE"
     fi
 }
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM HUP
 
 # shellcheck disable=SC2086
 "$ROOT/scripts/termux-capture.sh" $CAP_ARGS > "$FIFO" &

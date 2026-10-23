@@ -25,7 +25,8 @@ Versión del documento: 1 (2026-10-22). Los contratos detallados están en
                        ┌──────────────────────────────────────────────┐
                        │  ADAPTADOR DE MODELO (subproceso, C++)       │
                        │  · stt-adapter-moonshine (ONNX Runtime)      │
-                       │  · stt-adapter-whisper   (whisper.cpp) ←fut.│
+                       │  · stt-adapter-sherpa    (sherpa-onnx)       │
+                       │  · stt-adapter-whisper   (whisper.cpp) ←fut. │
                        │  · stt-adapter-echo      (fake, para tests)  │
                        └──────────────────────────────────────────────┘
 ```
@@ -150,7 +151,9 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
   de `tokenizer.json` con `jq`; el adaptador C++ solo necesita ese mapa para
   decodificar tokens a texto (no requiere merges BPE ni una librería JSON).
 - Moonshine tiny ocupa 109 MB en caché (encoder 30.9 MB + decoder 78.2 MB +
-  tokenizer 2.0 MB).
+  tokenizer 2.0 MB). Los modelos sherpa del Stage 5 suman ~287 MB: Kroko EN
+  ~68 MB, Kroko ES ~149 MB y zipformer EN 2023 int8 ~69 MB. El código fuente
+  de sherpa-onnx se compila en `var/tmp/sherpa-onnx` (`scripts/fetch-sherpa.sh`).
 
 ## 7. Manejo de errores
 
@@ -181,7 +184,7 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | **D11** | 2026-10-22 | Captura de micrófono en el **lado Android** con PulseAudio `module-sles-source` (OpenSL ES) + `parec` por pipe; helper `runas-ctx` para ejecutar como uid/contexto de Termux | ALSA en el chroot (HAL bloquea); termux-api en chunks AAC/hotfolder (cortes, decodificación y latencia); app Android propia (fuera de alcance) | PCM continuo s16le/16k/mono sin contenedor; requiere Termux:API + `RECORD_AUDIO` y setup root; la captura no se supervisa (si muere, EOF y cierre limpio del núcleo); hotfolder queda como alternativa futura. Verificado: S4.1, S4.2 (TTS acústico, 1.31–1.44 s) y S4.4 en la Sesión 006 |
 | **D12** | 2026-10-22 | Segundo motor: adaptador **`stt-adapter-whisper`** (C++ contra `whisper.cpp-libs` 1.9.3 del sistema, modelo `whisper-tiny`); objetivos **RTF ≤ 0.5** y **RSS < 350 MB**; moonshine sigue siendo el default | vendoring de whisper.cpp (coste de build en el teléfono); whisper en Python (rompe D1: runtime Go+C++); quedarse solo en inglés (razón de ser del stage de expansión) | multi-idioma (español) sin cambios de núcleo: la selección usa `--adapter`/`[adapter] cmd` ya existentes; whisper tiny es más pesado que Moonshine en este hardware (objetivos relajados en consecuencia); **→ SUSTITUIDO por D14 el mismo día: el motor del Stage 5 pasa a sherpa-onnx** |
 | **D13** | 2026-10-22 | **Salida remota**: `stt stream --out tcp://host:puerto` o `unix://ruta` transporta los mismos eventos `stt-events/1` con fan-out a N clientes; stdout sigue siendo el modo base | `tee`/proceso consumidor externo (parseo duplicado, frágil con pipes); salida a archivo (un solo consumidor); contrato nuevo `stt-events/2` (innecesario: el formato no cambia) | extiende **D3** de forma compatible (mismo NDJSON, transporte nuevo); la desconexión de un cliente no afecta al pipeline ni a los demás clientes; sobrecoste de latencia objetivo ≤ 10 ms; a verificar en S5.8 |
-| **D14** | 2026-10-22 | Motor del Stage 5: **sherpa-onnx streaming zipformer** (int8, es/en), compilado desde fuente contra la `libonnxruntime` del sistema; **sustituye a whisper.cpp (D12)** como elección del Stage 5 | whisper.cpp (más preciso pero por segmentos: sin parciales, RTF 0.4–1.5 esperado en este SoC, latencia 1–3 s); mantener solo Moonshine (inglés); decodificador streaming propio sobre ORT (fbank + transducer: demasiado alcance) | streaming nativo con **parciales palabra a palabra** (capability `partial`, cableada desde S3.5); RTF ≤ 0.35 y RSS < 300 MB; español sin cambios de núcleo (`--adapter`); moonshine sigue default; whisper.cpp queda como opción futura de máxima precisión. Decisión del usuario (Sesión 007) |
+| **D14** | 2026-10-22 | Motor del Stage 5: **sherpa-onnx streaming zipformer** (Kroko 2025 float, es/en; el int8 inicial se descartó en la Sesión 009), compilado desde fuente contra la `libonnxruntime` del sistema; **sustituye a whisper.cpp (D12)** como elección del Stage 5 | whisper.cpp (más preciso pero por segmentos: sin parciales, RTF 0.4–1.5 esperado en este SoC, latencia 1–3 s); mantener solo Moonshine (inglés); decodificador streaming propio sobre ORT (fbank + transducer: demasiado alcance) | streaming nativo con **parciales palabra a palabra** (capability `partial`, cableada desde S3.5); RTF ≤ 0.35 y RSS < 300 MB; español sin cambios de núcleo (`--adapter`); moonshine sigue default; whisper.cpp queda como opción futura de máxima precisión. Decisión del usuario (Sesión 007) |
 
 ---
 

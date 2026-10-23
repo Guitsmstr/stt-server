@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 4 — ✅ cerrado; Stage 5 — 🟦 definido (ver PROGRESO.md) |
-| **Última actualización** | 2026-10-22 (Sesión 007) |
+| **Estado actual** | Stage 5 — 🟦 en ejecución (S5.3/S5.6 ✅; S5.4/S5.5/S5.7–S5.9 pendientes; ver PROGRESO.md) |
+| **Última actualización** | 2026-10-23 (Sesión 011) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
 ---
@@ -118,10 +118,11 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   TTS acústico; S4.3 cerrado en la Sesión 007 con voz humana: 3 finales,
   latencia máx 1.269 s.)
 
-### Stage 5 — Expansión (definido en la Sesión 007; motor cambiado a sherpa-onnx por decisión del usuario)
+### Stage 5 — Expansión (en ejecución desde la Sesión 008; motor sherpa-onnx por D14)
 - **Objetivo**: ampliar el componente en dos direcciones sin romper contratos:
   **(a) multilingüe + streaming real** — segundo motor `stt-adapter-sherpa` en
-  C++ contra **sherpa-onnx** (streaming zipformer int8, español e inglés):
+  C++ contra **sherpa-onnx** (streaming zipformer Kroko 2025 float, español e
+  inglés; el int8 inicial se descartó en la Sesión 009):
   sin paquete Alpine y con prebuilt glibc (no sirven en musl), se compila
   desde fuente contra la `libonnxruntime` del sistema; modelos cacheados en
   `var/models/`; emite **parciales palabra a palabra** (capability `partial`,
@@ -137,7 +138,7 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   `stt-captions`), `tests/run-stage5-tests.sh`, script de servicio opcional,
   docs (CONTRATOS transporte, ARQUITECTURA D12/D13/D14, OPERACION, README,
   config).
-- **Objetivos sherpa**: RTF ≤ 0.35 y RSS pico < 300 MB (streaming int8 es
+- **Objetivos sherpa**: RTF ≤ 0.35 y RSS pico < 300 MB (el streaming es
   más ligero que whisper en este hardware; más estricto que los 0.5/350 MB
   planteados para whisper).
 - **Fuera de alcance de este stage**: sesiones múltiples concurrentes

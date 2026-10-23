@@ -82,6 +82,14 @@ Moonshine reintenta una vez un resultado vacío recortando 200 ms de cada borde
 (con tope ¼ del audio) porque el modelo emite EOS vacío en duraciones
 desafortunadas; un silencio genuino sigue devolviendo `"text":""`.
 
+Con `stt-adapter-sherpa`, `partial.text` contiene solo el tramo **nuevo** del
+segmento en curso: el texto ya confirmado por un `final` no se repite. Así los
+subtítulos no mezclan la frase anterior (acumulada en el decoder) con la
+actual. El adaptador añade además un pad de silencio al final de cada frame
+(`--frame-pad`, 0.6 s por defecto) para que el transducer streaming decodifique
+su cola de contexto derecho dentro del mismo segmento; sin él, las últimas
+palabras de una pausa se emitían con la frase siguiente.
+
 Los consumidores (el núcleo) **deben ignorar campos desconocidos**; los
 adaptadores pueden añadir diagnóstico en `bye` sin cambiar de versión.
 
@@ -257,7 +265,8 @@ pronuncia la frase de referencia por el altavoz (loopback acústico). Evento
 `arrival − t1 = 1.438 s` (objetivo S4.2 ≤ 3 s; la suite final midió
 1.307 s). El probe añade
 `arrival`/`latency` a su informe JSON; esos campos **no** forman parte del
-evento `stt-events/1`. La demo de voz humana de S4.3 queda pendiente.
+evento `stt-events/1`. La demo de voz humana de S4.3 se cerró en la Sesión 007
+(3 finales, latencia máx 1.269 s; ver `PROGRESO.md`).
 
 ---
 

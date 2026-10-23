@@ -76,7 +76,9 @@ Habla y Ctrl-C para terminar. El script:
 - arranca un PulseAudio privado en el puerto 4713 si no hay uno compatible,
   con `module-sles-source source_name=stt_mic_4713 rate=16000 channels=1`;
 - ejecuta `parec` y lo conecta a `stt stream` por una FIFO;
-- al salir, mata `parec`, PulseAudio y limpia el runtime.
+- al salir, mata `parec`, PulseAudio (también el wrapper `nsenter`, que no
+  reenvía señales) y limpia el runtime. Como red de seguridad, PulseAudio sale
+  solo tras 30 s sin clientes aunque el wrapper muera de forma abrupta.
 
 Opciones útiles:
 
@@ -95,6 +97,7 @@ La sesión NDJSON se guarda en `var/tmp/demo/` por defecto.
 
 ```sh
 ./scripts/stt-captions.sh                       # demo normal
+./scripts/stt-captions.sh --engine sherpa       # parciales en vivo (ES/EN)
 ./scripts/stt-captions.sh --raw                 # NDJSON crudo (stt-events/1)
 ./scripts/stt-captions.sh --no-log              # sin guardar sesión
 ./scripts/stt-captions.sh -- --partials         # opts tras -- van a `stt stream`
@@ -104,8 +107,9 @@ La sesión NDJSON se guarda en `var/tmp/demo/` por defecto.
 `--render-only` repite una sesión guardada como subtítulos (y sirve de banco
 de pruebas del renderizador sin micrófono). Los subtítulos aparecen **por
 segmento, en las pausas** (~0.5–1.3 s tras el fin del segmento; Moonshine solo
-emite `final`, ver S3.5): un adaptador que declare capability `partial`
-(p. ej. whisper.cpp en Stage 5) permitiría texto interim.
+emite `final`, ver S3.5). Con `--engine sherpa` el adaptador declara `partial`
+y se muestra texto interim mientras se habla; el `partial` es el tramo nuevo
+del segmento (no repite los finales anteriores).
 
 Captura cruda, sin `stt` (útil para depurar o para otro consumidor):
 
@@ -153,6 +157,7 @@ solo hacen falta los mounts + setup.
 | `missing .../runas-ctx` | Ejecuta `sh scripts/termux-mic-setup.sh` (root, chroot). |
 | `no PulseAudio server` | Arranca sin `--no-start-server` o inicia un servidor en ese puerto. |
 | `ports 4713-4723 are busy` | Usa `--port` con un puerto libre. |
+| CPU alta / `mic busy` sin sesión activa | Servidor PulseAudio huérfano de una sesión interrumpida. Comprueba con `ps -ef | grep pulseaudio` y mata con `pkill -f "source_name=stt_mic_"`; borra los restos `/data/local/tmp/stt-pa-start.*.sh`. Desde la Sesión 010 el teardown ignora señales durante la limpieza y PulseAudio sale solo a los 30 s sin clientes. |
 | Termux se reinició | El uid/contexto suele ser el mismo; re-ejecuta el setup para refrescar `var/bin/termux-mic.env` si el helper falla. |
 | Termux:API deja de responder (TTS/record colgado) | `am force-stop com.termux.api` y `am startservice -n com.termux.api/.KeepAliveService` desde el dominio `shell`; el test S4.2 lo hace antes de hablar. |
 | Silencio en la captura | Comprueba `--check`, el volumen multimedia (`cmd media_session volume --stream 3 --get`) y que la fuente sea `stt_mic_<puerto>`. |
@@ -177,8 +182,6 @@ Evidencia en `var/tmp/stage4/` (`live_s42.json`, `stage4-run.log`, etc.).
 
 ## 6. Limitaciones v1
 
-- La demo de **voz humana** (S4.3) queda pendiente de una grabación real; los
-  tests usan TTS por el altavoz como fuente acústica reproducible.
 - El **hotfolder** (CONTRATOS §4) queda como alternativa futura; v1 usa pipe.
 - No hay cancelación de eco propia: la calidad depende del micrófono, el
   altavoz y el ruido ambiente del teléfono.
