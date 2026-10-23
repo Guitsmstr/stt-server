@@ -14,3 +14,9 @@ __pycache__/
 *.pyc
 /tmp/
 .cache/
+
+# ruido de SO/editor (trabajo multi-dispositivo: chroot Android + Mac)
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -7,8 +7,8 @@
 | | |
 |---|---|
 | **Stage actual** | **Stage 5 — ✅ cerrado (Sesión 012)** |
-| **Última actualización** | 2026-10-23 (Sesión 012) |
-| **Siguiente paso** | No hay stages abiertos. Antes de un release: `make test-soak` (30 min). Líneas futuras posibles: Stage 6 (sesiones concurrentes), whisper.cpp (máxima precisión) o empaquetado — ninguna definida aún. |
+| **Última actualización** | 2026-10-23 (Sesión 013) |
+| **Siguiente paso** | No hay stages abiertos. Sesión 013: auditoría de publicación en GitHub (repo limpio; faltan decisiones: LICENSE, identidad git) + análisis de acceso remoto Mac/LAN (vía sin elegir). Antes de un release: `make test-soak` (30 min). Líneas futuras posibles: Stage 6 (sesiones concurrentes / servicio REST), whisper.cpp o empaquetado — ninguna definida aún. |
 
 ## Estado de stages
 
@@ -153,6 +153,56 @@ Generales (Sesión 012):
 ---
 
 ## Bitácora
+
+### Sesión 013 — 2026-10-23
+**Alcance**: preparación para publicación en GitHub (auditoría de seguridad e
+higiene del repo) y análisis de opciones de acceso remoto (Mac/LAN). Sin
+cambios en el núcleo ni en contratos.
+
+**Auditoría de publicación (hallazgos con evidencia)**
+- `var/` (600 MB: modelos, binarios, tmp) nunca versionado; `.gitignore` lo
+  cubre. Historia sin blobs grandes (mayor: `tests/assets/beckett.wav`,
+  319 KB, clip TTS propio).
+- Sin secretos: ni tokens/API keys/passwords en archivos versionados ni en la
+  historia (`git log --all --diff-filter=A -- var/` vacío); IPs solo loopback
+  en ejemplos; sin datos personales (sin seriales, hostnames ni usuarios).
+- Sin remotes configurados (cero riesgo de push accidental); rama ya `main`.
+- **Decisiones pendientes del usuario antes del push**: (1) LICENSE (sin
+  licencia, un repo público no es usable por terceros); (2) identidad git —
+  la historia tiene 3 autores inconsistentes (`root@localhost.localdomain`,
+  `stt@local`): normalizar con `git filter-repo` antes del primer push (barato
+  hoy: 23 commits, sin remotes); (3) visibilidad y nombre del repo (privado
+  recomendado de inicio); (4) añadir nota de licencias de los modelos
+  descargados (moonshine, kroko/sherpa) en README/PREREQUISITOS.
+
+**Cambios hechos**
+- `.gitignore`: ruido de macOS y editores (`.DS_Store`, `.idea/`, `.vscode/`,
+  `*.swp`) — relevante al trabajar desde el Mac.
+
+**Análisis de acceso remoto (registro; sin implementar)**
+- **B — adb shell** (cero código): B1 pipeline completo en el teléfono con
+  stdout hacia el Mac por adb (dev/demo); B2 audio del Mac → stdin por adb
+  (PCM 16 kHz mono = 32 kB/s, trivial para adb); B3 `adb forward tcp:4714
+  tcp:4714` → fan-out S5.8 en loopback, túnel seguro por USB. Aclaración:
+  `adb shell` no ejecuta Alpine "en el Mac"; el chroot corre en el teléfono y
+  el Mac es solo consola.
+- **A′ — pipe SSH** (cero código, LAN segura): `sshd` de Termux; en el Mac
+  `sox`/`ffmpeg` → PCM por SSH → `stt stream` (stdin intacto); auth y cifrado
+  heredados de SSH. Ingesta de audio por LAN sin escribir código.
+- **A — servicio REST/WS** (código nuevo): `sttd` en Go (`core/cmd/sttd`,
+  reusa `internal/runner` + patrón `internal/fanout`; contratos intactos: el
+  demonio es otra fuente de audio + consumidor de `stt-events/1`). v1 con
+  sesiones serializadas (RAM 3.6 GB, RSS adaptador 160–260 MB, carga de
+  modelo 5–12 s); bearer token obligatorio (el fan-out actual no tiene
+  auth — limitación ya documentada en OPERACION §6); encaja como Stage 6.
+- **C — Alpine en el Mac** (port, no conexión): VM linux/arm64
+  (UTM/OrbStack/Lima/Docker) ejecutando este mismo repo; micrófono del Mac
+  por `sox`/`ffmpeg` (avfoundation) → stdin. Útil solo si se quiere STT sin
+  el teléfono.
+
+**Siguiente paso**: decidir LICENSE + identidad git (bloquea el push) y
+elegir vía de acceso remoto. Recomendación: B3 para desarrollo desde el Mac
+ya, A′ para LAN sin cable, A como Stage 6 si se quiere servicio real.
 
 ### Sesión 012 — 2026-10-23
 **Alcance**: cierre del Stage 5 — S5.4 (cobertura fuzzy ES/EN), S5.5 (RTF/RSS
