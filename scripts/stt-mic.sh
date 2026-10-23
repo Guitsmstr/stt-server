@@ -2,15 +2,19 @@
 # stt-mic — microphone -> `stt stream` (Stage 4 convenience wrapper).
 #
 #   ./scripts/stt-mic.sh
+#   ./scripts/stt-mic.sh --engine sherpa      # sherpa zipformer + partials
+#   ./scripts/stt-mic.sh --engine moonshine   # explicit default engine
 #   ./scripts/stt-mic.sh --port 4713 -- --adapter adapters/echo/stt-adapter-echo
 #
 # Capture options (before `--`) are passed to scripts/termux-capture.sh:
-#   --mode auto|termux|android  --port N  --rate N  --channels N
+#   --engine NAME  --mode auto|termux|android  --port N  --rate N  --channels N
 #   --device NAME  --latency-ms N  --no-start-server  --check
 #
-# Everything after `--` (or after the first unknown option) goes to
-# `stt stream`; with no arguments the adapter/model from config/stt.toml are
-# used.
+# --engine NAME expands to the adapter/model pair of a known engine
+# (moonshine = config default; sherpa = streaming zipformer en, --partials on).
+# Anything after `--` goes verbatim to `stt stream` and wins over the preset
+# (Go flags: last one wins), e.g. `--engine sherpa -- --partials=false`.
+# With no --engine and no explicit --adapter, config/stt.toml decides.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -18,11 +22,13 @@ STT=${STT:-"$ROOT/var/bin/stt"}
 CAP_ARGS=
 
 usage() {
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        --engine)   [ $# -ge 2 ] || { echo "error: --engine needs a value" >&2; exit 2; }
+                    ENGINE=$2; shift 2 ;;
         --mode|--port|--rate|--channels|--device|--latency-ms)
             [ $# -ge 2 ] || { echo "error: $1 needs a value" >&2; exit 2; }
             CAP_ARGS="$CAP_ARGS $1 $2"
@@ -66,6 +72,20 @@ if [ -f "$PIDFILE" ]; then
 fi
 echo $$ > "$PIDFILE"
 
+# --engine: shorthand for the adapter/model pair (explicit flags after `--`
+# win over these: Go flag parsing keeps the last occurrence).
+ENGINE_ARGS=""
+case "${ENGINE:-}" in
+    "")        ;;
+    moonshine) ENGINE_ARGS="--adapter adapters/moonshine/stt-adapter-moonshine --model var/models/moonshine-tiny" ;;
+    sherpa)    ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-en"
+               # partials on by default unless the caller brings their own
+               # (--partials or --partials=false after `--`).
+               case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
+    echo)      ENGINE_ARGS="--adapter adapters/echo/stt-adapter-echo" ;;
+    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|echo)" >&2; exit 2 ;;
+esac
+
 # --check/--list are capture-only shortcuts.
 case " $CAP_ARGS " in
     *" --check "*|*" --list "*)
@@ -94,7 +114,8 @@ trap cleanup EXIT INT TERM HUP
 "$ROOT/scripts/termux-capture.sh" $CAP_ARGS > "$FIFO" &
 CAP_PID=$!
 
-"$STT" stream "$@" < "$FIFO" &
+# shellcheck disable=SC2086
+"$STT" stream $ENGINE_ARGS "$@" < "$FIFO" &
 STT_PID=$!
 RC=0
 wait "$STT_PID" || RC=$?

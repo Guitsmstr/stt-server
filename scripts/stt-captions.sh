@@ -2,6 +2,7 @@
 # stt-captions — terminal live captions: microphone -> `stt stream` -> text.
 #
 #   ./scripts/stt-captions.sh
+#   ./scripts/stt-captions.sh --engine sherpa    # sherpa zipformer, partials on
 #   ./scripts/stt-captions.sh --port 4717        # capture opts (see stt-mic.sh)
 #   ./scripts/stt-captions.sh -- --partials      # opts after -- go to `stt stream`
 #   ./scripts/stt-captions.sh --raw              # raw NDJSON instead of captions
@@ -45,6 +46,9 @@ if [ "$RENDER_ONLY" -eq 0 ]; then
     elif [ "$LOG" = "none" ]; then
         LOG=""
     fi
+    # Keep the advertised promise: raw stt-events/1 lines land in the session
+    # log as they arrive (replayable with --render-only). Empty LOG = --no-log.
+    [ -n "$LOG" ] && exec 3>>"$LOG"
 fi
 
 # ---- rendering --------------------------------------------------------------
@@ -76,6 +80,7 @@ trap end_line EXIT
 render_stream() {
     while IFS= read -r ev; do
         [ -n "$ev" ] || continue
+        [ -n "$LOG" ] && printf '%s\n' "$ev" >&3
         row=$(printf '%s' "$ev" | jq -r '
             select(.type != "final" or ((.text // "") != ""))
             | [(.type // ""), (.text // ""), (.t0 // 0), (.message // ""),
