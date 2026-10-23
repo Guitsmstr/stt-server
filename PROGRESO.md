@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 5 — 🟦 en ejecución (Sesión 008)** |
-| **Última actualización** | 2026-10-23 (Sesión 008) |
-| **Siguiente paso** | **S5.6** — extender `scripts/fetch-model.sh` a los modelos zipformer (`var/models/sherpa-zipformer-{es,en}/`, idempotente; en = streaming-zipformer-en-2023-06-26 int8 ya descargado a mano; es = kroko-2025-08-06 float) y luego **S5.4** transcripción es/en |
+| **Stage actual** | **Stage 5 — 🟦 en ejecución (Sesión 009)** |
+| **Última actualización** | 2026-10-23 (Sesión 009) |
+| **Siguiente paso** | **S5.4** — transcripción es/en sobre archivo con cobertura fuzzy ≥ 80 % (EN: beckett ya literal tras Sesión 009; falta clip ES por TTS + script de cobertura) y luego **S5.5** (RTF/RSS con frames de 5 s) |
 
 ## Estado de stages
 
@@ -133,9 +133,9 @@ Específicos:
 - [x] **S5.2** Checks específicos escritos al definir el alcance — S5.1–S5.9 en esta sección
 - [ ] **S5.3** `stt-adapter-sherpa` compila sherpa-onnx desde fuente contra `libonnxruntime` del sistema (`-Wall -Wextra`; prebuilt glibc no sirve en musl) y completa el handshake `stt-adapter/1` declarando capabilities `final` + `partial`
 - [x] **S5.3** Compilación + handshake **OK** (Sesión 008): sherpa-onnx **v1.13.8** clonado en `var/tmp/sherpa-onnx` y compilado desde fuente (estático, cmake Release) contra `libonnxruntime` 1.24.4 del sistema; parche local `-include cstdint` (GCC 15/musl deja de heredar `<cstdint>` transitivamente; ~500 TUs afectados) vía `scripts/fetch-sherpa.sh` (idempotente, `--offline`). Adaptador `adapters/sherpa/` (`sherpa.cc` + Makefile, `-Wall -Wextra` sin warnings, binario estático 5 MB + ORT del sistema): auto-detección de archivos del modelo (prefiere int8), `--model/--encoder/--decoder/--joiner/--tokens/--threads/--no-endpoint/--rule{1,2,3}`. Handshake verificado: `ready` con `"capabilities":["final","partial"]`, `error` fatales por header/audio/modelo ausente, `bye` con `rss_kb`. E2E con `tests/feed_stream.py` (`--speed 2 --partials`): 6 finales + 12 parciales palabra a palabra a través del núcleo, texto Beckett correcto ("Ever tried. Ever failed. No matter..."); RSS adaptador 136 MB; RTF crudo 0.21–0.48 en frames de 2 s (limitado; S5.5 mide en condiciones del check con frames de 5 s)
-- [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS)
-- [ ] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames de 5 s)
-- [ ] **S5.6** Cache de modelos idempotente en `var/models/sherpa-zipformer-{es,en}/` (2ª corrida con `--offline`)
+- [ ] **S5.4** Transcripción correcta en **español e inglés** sobre archivo de prueba (cobertura fuzzy ≥ 80 % vs referencia; clip español generado con TTS) — nota Sesión 009: EN beckett ya se transcribe **literal** con `sherpa` (kroko EN 2025 + 2 fixes del adaptador, ver bitácora); falta el clip ES y la medición fuzzy formal
+- [ ] **S5.5** RTF ≤ 0.35 y RSS pico < 300 MB (frames de 5 s) — nota Sesión 009: kroko EN rtf 0.16–0.29 y RSS 162 MB en la ruta completa (indicio favorable; medición formal pendiente)
+- [x] **S5.6** Cache de modelos idempotente en `var/models/sherpa-zipformer-{es,en}/` (2ª corrida con `--offline`) — Sesión 009: `fetch-model.sh --model kroko-es|kroko-en|zipformer-en` con sha256 pinneado; las 4 corridas `--offline` imprimen `cached:` y `model ready:` (evidencia en bitácora); `make models` descarga tiny + los 3 zipformer
 - [ ] **S5.7** Selección de motor por config/flag; moonshine sigue siendo el default; regresión de stages 1–4 en verde
 - [ ] **S5.8** `--out tcp://…` (y `unix://…`): 2 clientes simultáneos reciben los mismos eventos NDJSON; sobrecoste de latencia ≤ 10 ms; la desconexión de un cliente no afecta al pipeline ni al otro
 - [ ] **S5.9** Partials end-to-end (demo karaoke): con `[output] partials = true`, `stt-captions` muestra texto interim **mientras se habla** y el `final` final confirma el segmento (cierra lo dejado pendiente en S3.5)
@@ -145,6 +145,35 @@ Generales G1–G6: al ejecutar
 ---
 
 ## Bitácora
+
+### Sesión 009 — 2026-10-23
+**Alcance**: precisión del motor sherpa (reporte del usuario: «moonshine es más preciso que sherpa»). Diagnóstico A/B, dos bugs del adaptador corregidos, motor EN cambiado a kroko 2025 y **S5.6** cerrado.
+
+**Diagnóstico (A/B sobre `tests/assets/beckett.wav`, ref «Ever tried ever failed, no matter try again, fail again, fail better.»)**:
+- **Modelo EN 2023-06-26 (int8, greedy) — causa principal**: salida UPPERCASE sin puntuación y errores de orden/palabras bajo VAD («TRY AGAIN FAIL / AGAIN FAIL» por «fail better»). `modified_beam_search` no cambió el texto (RTF +5 %): se deja `greedy_search` por defecto y el método queda expuesto como flag. **Float vs int8**: texto idéntico, float ~1.5× RTF y ~2.4× RSS ⇒ int8 se queda como default (no era la causa).
+- **Modelo kroko EN 2025-08-06 (float, 24 kHz, 67 MB)**: transcripción **literal y con puntuación/caja** («ever tried, ever failed. No matter, try again. Fail again fail better»), RTF 0.19 y RSS 162 MB — mejor que el 2023 int8 en todo. Elegido como motor `sherpa` (refina D14: kroko es float, no int8).
+- **Sample rate descartado como causa**: kroko ES (22050 Hz) y EN (24000 Hz) dan salida idéntica alimentando features a 16 kHz o a su tasa nativa (solo 8000 Hz degrada). Igualmente se añade `--sample-rate` al adaptador por corrección (sherpa remuestrea internamente; ver features.cc).
+
+**Bugs del adaptador corregidos (`adapters/sherpa/sherpa.cc`)**:
+1. **Duplicación en endpoint**: al disparar una regla de endpoint se emitía el *enunciado completo* como `final`, repitiendo todo lo ya enviado como deltas por frame (verificado con probe: «BETTER» en frame 10 y luego el texto íntegro en frame 11). Ahora `emit_tail()` emite solo el tramo no cubierto por `baseline` (fallback a texto completo solo si el decoder divergió).
+2. **Cola perdida en EOF**: el transducer streaming necesita ~1 s de contexto derecho tras la última palabra; el VAD del núcleo descarta el silencio final (`skipped_s`), así que las últimas palabras jamás se decodificaban (beckett cortado a 8.91 s perdía «fail better»). Fix: pad de silencio en EOF (max(rule2, 1.5 s)) antes de `InputFinished` + cierre por endpoint si corresponde. Verificado: «BETTER» recuperado en el flush (rtf 0.000) y la ruta completa del núcleo entrega la frase completa con ambos motores.
+
+**Nuevos flags del adaptador**: `--sample-rate N` (tasa del modelo, default 16000; kroko ES 22050 / EN 24000), `--method greedy_search|modified_beam_search`, `--max-active-paths N`. Validación con `error` fatal; línea de stderr de carga ampliada (rate/method).
+
+**Cambios de motor/scripts**:
+- `scripts/fetch-model.sh`: `--model kroko-en|kroko-es|zipformer-en` con sha256 pinneado (kroko desde los repos HF de csukuangfj; licencia CC-BY-SA de Banafo/Kroko-ASR). Idempotencia verificada — las 4 corridas con `--offline` (tiny incluido) imprimen `cached:` × N + `model ready:`.
+- `make models` descarga tiny + los 3 zipformer. `scripts/stt-mic.sh`: `--engine sherpa` pasa a kroko EN 2025 (`var/models/sherpa-zipformer-en-kroko/`); el 2023 queda como `--engine sherpa-en-2023` (fallback); `sherpa-es` sin cambios.
+- Descartado el ensayo `var/models/sherpa-zipformer-en-float/` (250 MB, conclusión registrada arriba).
+
+**Evidencia E2E (núcleo, VAD on, frames 2 s, `--partials`)** — `tests/feed_stream.py` con kroko EN: 5 finales + 5 parciales, texto «ever tried, ever failed, no matter,try again fail again, fail better» (literal; sin espacio tras la coma es cosido de deltas, cosmético). Regresión `make test`: Stage 1 ALL OK + `go test` verde.
+
+**Archivos tocados**: `adapters/sherpa/sherpa.cc`, `scripts/fetch-model.sh`, `scripts/stt-mic.sh`, `Makefile`, `PROGRESO.md`; no versionados: `var/models/sherpa-zipformer-en-kroko/` (nuevo).
+
+**Checks**: S5.6 ✅ (evidencia arriba); S5.4 en camino (EN literal; falta clip ES + fuzzy); S5.5 indicios favorables (rtf 0.16–0.29, RSS 162 MB, medición formal pendiente).
+
+**Decisiones nuevas**: ninguna formal (elección de modelo dentro del adaptador D14; kroko float documentado aquí y en el header del adaptador).
+
+**Siguiente paso**: **S5.4** — clip ES por TTS + cobertura fuzzy es/en ≥ 80 %; luego **S5.5** (RTF/RSS formal, frames 5 s).
 
 ### Sesión 008 — 2026-10-23
 **Alcance**: inicio de la ejecución del Stage 5 — **S5.3** completo (`stt-adapter-sherpa` + build sherpa-onnx desde fuente + handshake `stt-adapter/1` con `partial`). Nada pendiente de la Sesión 007 (árbol limpio al abrir).

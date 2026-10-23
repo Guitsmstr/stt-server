@@ -11,11 +11,11 @@
 #   --device NAME  --latency-ms N  --no-start-server  --check
 #
 # --engine NAME expands to the adapter/model pair of a known engine
-# (moonshine = config default; sherpa = streaming zipformer en, --partials on;
-# sherpa-es = kroko es, float). Anything after `--` goes verbatim to
-# `stt stream` and wins over the preset (Go flags: last one wins), e.g.
-# `--engine sherpa -- --partials=false`. With no --engine and no explicit
-# --adapter, config/stt.toml decides.
+# (moonshine = config default; sherpa = kroko EN 2025 zipformer, --partials on;
+# sherpa-es = kroko es; sherpa-en-2023 = legacy int8 zipformer). Anything after
+# `--` goes verbatim to `stt stream` and wins over the preset (Go flags: last
+# one wins), e.g. `--engine sherpa -- --partials=false`. With no --engine and
+# no explicit --adapter, config/stt.toml decides.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -79,14 +79,17 @@ ENGINE_ARGS=""
 case "${ENGINE:-}" in
     "")        ;;
     moonshine) ENGINE_ARGS="--adapter adapters/moonshine/stt-adapter-moonshine --model var/models/moonshine-tiny" ;;
-    sherpa)    ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-en"
+    sherpa)    ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-en-kroko"
                # partials on by default unless the caller brings their own
                # (--partials or --partials=false after `--`).
                case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
     sherpa-es) ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-es"
                case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
+    sherpa-en-2023)
+               ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-en"
+               case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
     echo)      ENGINE_ARGS="--adapter adapters/echo/stt-adapter-echo" ;;
-    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|sherpa-es|echo)" >&2; exit 2 ;;
+    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|sherpa-es|sherpa-en-2023|echo)" >&2; exit 2 ;;
 esac
 
 # --check/--list are capture-only shortcuts.

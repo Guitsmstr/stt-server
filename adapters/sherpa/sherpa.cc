@@ -16,6 +16,13 @@
 // decoder and joiner .onnx files (int8 variants preferred when present;
 // auto-detected, overridable with --encoder/--decoder/--joiner/--tokens).
 //
+// The contract always carries 16 kHz PCM; models trained at another rate
+// (e.g. kroko 2025, 22.05 kHz) are handled with --sample-rate: the feature
+// extractor is configured at the model rate and sherpa-onnx resamples the
+// 16 kHz input internally (features.cc creates a resampler when the rates
+// differ). Feeding 16 kHz features into a 22.05 kHz model without this
+// silently degrades accuracy (S5.4 fix).
+//
 // sherpa-onnx is built from source against the system libonnxruntime
 // (no Alpine package; prebuilt tarballs are glibc — see PLAN §Stage 5,
 // D14): make -C var/tmp/sherpa-onnx/build && make -C adapters/sherpa
@@ -44,6 +51,9 @@ struct Options {
     std::string model_dir;
     std::string encoder, decoder, joiner, tokens;
     int threads = 2;
+    int sample_rate = 16000; // model/feature rate (contract stays 16 kHz)
+    std::string method = "greedy_search";
+    int max_active_paths = 4; // modified_beam_search beam width
     bool endpoint = true;
     float rule1 = 2.4f; // trailing silence (s) with speech before it
     float rule2 = 1.2f; // trailing silence (s) after decoded utterance
@@ -257,8 +267,12 @@ bool resolve_model(const Options &o, std::string *enc, std::string *dec,
 
 void usage(FILE *f) {
     std::fputs("usage: stt-adapter-sherpa --model DIR [--encoder FILE] [--decoder FILE]\n"
-               "       [--joiner FILE] [--tokens FILE] [--threads N] [--no-endpoint]\n"
-               "       [--rule1 S] [--rule2 S] [--rule3 S]\n",
+               "       [--joiner FILE] [--tokens FILE] [--threads N] [--sample-rate N]\n"
+               "       [--method greedy_search|modified_beam_search]\n"
+               "       [--max-active-paths N] [--no-endpoint]\n"
+               "       [--rule1 S] [--rule2 S] [--rule3 S]\n"
+               "  --sample-rate: model training rate (default 16000). kroko-2025\n"
+               "      models need 22050; the 16 kHz contract PCM is resampled.\n",
                f);
 }
 
@@ -300,6 +314,26 @@ void emit_final(const std::string &text, int frame, double infer_s, double dur_s
     emit_event(stdout, body);
 }
 
+// Emits the part of `text` not yet covered by `baseline` (falling back to the
+// full text only if the decoder diverged). Returns the new baseline. Used by
+// the per-frame path, the endpoint path and the EOF flush so a final never
+// repeats text already sent in earlier finals.
+std::string emit_tail(const std::string &text, const std::string &baseline,
+                      int frame, double infer_s, double dur_s) {
+    if (text.size() >= baseline.size() &&
+        text.compare(0, baseline.size(), baseline) == 0) {
+        std::string delta = text.substr(baseline.size());
+        if (!delta.empty() && delta[0] == ' ') delta.erase(0, 1);
+        if (!delta.empty()) {
+            emit_final(delta, frame, infer_s, dur_s);
+            return text;
+        }
+        return baseline;
+    }
+    if (!text.empty()) emit_final(text, frame, infer_s, dur_s);
+    return text;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -318,6 +352,10 @@ int main(int argc, char **argv) {
         else if (std::strcmp(argv[i], "--joiner") == 0) o.joiner = need("--joiner");
         else if (std::strcmp(argv[i], "--tokens") == 0) o.tokens = need("--tokens");
         else if (std::strcmp(argv[i], "--threads") == 0) o.threads = std::atoi(need("--threads"));
+        else if (std::strcmp(argv[i], "--sample-rate") == 0) o.sample_rate = std::atoi(need("--sample-rate"));
+        else if (std::strcmp(argv[i], "--method") == 0) o.method = need("--method");
+        else if (std::strcmp(argv[i], "--max-active-paths") == 0)
+            o.max_active_paths = std::atoi(need("--max-active-paths"));
         else if (std::strcmp(argv[i], "--no-endpoint") == 0) o.endpoint = false;
         else if (std::strcmp(argv[i], "--rule1") == 0) o.rule1 = std::atof(need("--rule1"));
         else if (std::strcmp(argv[i], "--rule2") == 0) o.rule2 = std::atof(need("--rule2"));
@@ -332,6 +370,16 @@ int main(int argc, char **argv) {
         }
     }
     if (o.threads <= 0) o.threads = 2;
+    if (o.sample_rate < 8000 || o.sample_rate > 48000) {
+        emit_error("model", "--sample-rate: implausible model rate (8000..48000)", true);
+        return 1;
+    }
+    if (o.method != "greedy_search" && o.method != "modified_beam_search") {
+        emit_error("model", "--method: only greedy_search and modified_beam_search are supported",
+                   true);
+        return 1;
+    }
+    if (o.max_active_paths <= 0) o.max_active_paths = 4;
 
     // Protocol header must be read before anything else (nucleus sends it
     // immediately after spawn; see CONTRATOS §2.2).
@@ -357,7 +405,9 @@ int main(int argc, char **argv) {
 
     SherpaOnnxOnlineRecognizerConfig cfg;
     std::memset(&cfg, 0, sizeof(cfg));
-    cfg.feat_config.sample_rate = kSampleRate;
+    // Feature extractor at the MODEL rate; the contract feeds 16 kHz and
+    // sherpa-onnx resamples internally when the two differ.
+    cfg.feat_config.sample_rate = o.sample_rate;
     cfg.feat_config.feature_dim = 80;
     cfg.model_config.transducer.encoder = enc.c_str();
     cfg.model_config.transducer.decoder = dec.c_str();
@@ -365,7 +415,8 @@ int main(int argc, char **argv) {
     cfg.model_config.tokens = toks.c_str();
     cfg.model_config.num_threads = o.threads;
     cfg.model_config.provider = "cpu";
-    cfg.decoding_method = "greedy_search";
+    cfg.decoding_method = o.method.c_str();
+    cfg.max_active_paths = o.max_active_paths;
     cfg.enable_endpoint = o.endpoint ? 1 : 0;
     cfg.rule1_min_trailing_silence = o.rule1;
     cfg.rule2_min_trailing_silence = o.rule2;
@@ -386,8 +437,10 @@ int main(int argc, char **argv) {
         return 1;
     }
     std::fprintf(stderr,
-                 "stt-adapter-sherpa: loaded %s in %.2fs (threads=%d, endpoint=%d)\n",
-                 o.model_dir.c_str(), load_s, o.threads, o.endpoint ? 1 : 0);
+                 "stt-adapter-sherpa: loaded %s in %.2fs (threads=%d, rate=%d, "
+                 "method=%s, endpoint=%d)\n",
+                 o.model_dir.c_str(), load_s, o.threads, o.sample_rate,
+                 o.method.c_str(), o.endpoint ? 1 : 0);
 
     emit_event(stdout,
                "{\"type\":\"ready\",\"protocol\":\"stt-adapter/1\",\"name\":\"sherpa\","
@@ -437,43 +490,54 @@ int main(int argc, char **argv) {
         total_infer += infer_s;
 
         if (o.endpoint && SherpaOnnxOnlineStreamIsEndpoint(rec, stream)) {
-            // Silence boundary: the whole in-progress utterance is final.
-            if (!text.empty()) emit_final(text, frame, infer_s, dur_s);
+            // Silence boundary: close the utterance, but only with the text
+            // not already covered by per-frame finals (S5.4: re-emitting the
+            // whole utterance duplicated everything the nucleus had seen).
+            baseline = emit_tail(text, baseline, frame, infer_s, dur_s);
             SherpaOnnxOnlineStreamReset(rec, stream);
             last_partial.clear();
             baseline.clear();
-        } else if (text.size() >= baseline.size() &&
-                   text.compare(0, baseline.size(), baseline) == 0) {
-            // Normal path: the text grows monotonically; report the new tail.
-            std::string delta = text.substr(baseline.size());
-            if (!delta.empty() && delta[0] == ' ') delta.erase(0, 1);
-            if (!delta.empty()) {
-                emit_final(delta, frame, infer_s, dur_s);
-                baseline = text;
-            }
         } else {
-            // Text shrank/diverged without an endpoint (should not happen);
-            // fall back to reporting the full text to stay consistent.
-            if (!text.empty()) emit_final(text, frame, infer_s, dur_s);
-            baseline = text;
+            // Normal path: report the new tail (helper falls back to the full
+            // text if the decoder shrank/diverged without an endpoint).
+            baseline = emit_tail(text, baseline, frame, infer_s, dur_s);
         }
 
         total_bytes += n;
         ++frame;
     }
 
-    // EOF: flush the tail of the stream (padding) and emit what is left.
+    // EOF: VAD-based segmenters drop trailing silence, so (a) the last words
+    // may still sit inside the transducer's right-context window and (b) an
+    // open utterance never sees the pause that would trigger the endpoint.
+    // Feed one silence pad covering both, emit the tail (never re-emitting
+    // covered text), then flush the stream.
+    {
+        const float pad_s = !o.endpoint ? 1.5f : (o.rule2 > 1.5f ? o.rule2 : 1.5f);
+        std::vector<float> pad(static_cast<size_t>(kSampleRate * pad_s), 0.0f);
+        SherpaOnnxOnlineStreamAcceptWaveform(stream, kSampleRate, pad.data(),
+                                             static_cast<int32_t>(pad.size()));
+        double pad_infer = 0.0;
+        std::string pad_text = drain(rec, stream, frame > 0 ? frame - 1 : 0,
+                                     &last_partial, &pad_infer);
+        total_infer += pad_infer;
+        if (o.endpoint && SherpaOnnxOnlineStreamIsEndpoint(rec, stream)) {
+            baseline = emit_tail(pad_text, baseline, frame > 0 ? frame - 1 : 0,
+                                 pad_infer, 0.0);
+            SherpaOnnxOnlineStreamReset(rec, stream);
+            last_partial.clear();
+            baseline.clear();
+        } else {
+            baseline = emit_tail(pad_text, baseline, frame > 0 ? frame - 1 : 0,
+                                 pad_infer, 0.0);
+        }
+    }
     SherpaOnnxOnlineStreamInputFinished(stream);
     double tail_infer = 0.0;
     std::string text = drain(rec, stream, frame > 0 ? frame - 1 : 0, &last_partial,
                              &tail_infer);
     total_infer += tail_infer;
-    if (text.size() > baseline.size() &&
-        text.compare(0, baseline.size(), baseline) == 0) {
-        std::string delta = text.substr(baseline.size());
-        if (!delta.empty() && delta[0] == ' ') delta.erase(0, 1);
-        if (!delta.empty() && frame > 0) emit_final(delta, frame - 1, tail_infer, 0.0);
-    }
+    if (frame > 0) baseline = emit_tail(text, baseline, frame - 1, tail_infer, 0.0);
 
     SherpaOnnxDestroyOnlineStream(stream);
     SherpaOnnxDestroyOnlineRecognizer(rec);

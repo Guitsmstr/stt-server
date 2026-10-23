@@ -12,6 +12,9 @@ adapters:
 
 models:
 	sh scripts/fetch-model.sh
+	sh scripts/fetch-model.sh --model kroko-en
+	sh scripts/fetch-model.sh --model kroko-es
+	sh scripts/fetch-model.sh --model zipformer-en
 	sh scripts/fetch-sherpa.sh
 
 test: all
