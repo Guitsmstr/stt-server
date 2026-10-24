@@ -293,6 +293,7 @@ cabecera `Authorization`, leer mensajes de texto y quedarse con los
 | Cortes periódicos | Cliente lento (`1013`) o captura suspendida: revisa el wakelock y el log de `sttd`. |
 | No conecta desde la LAN | Bind en loopback (por defecto) → usa `--listen`; o firewall/router. |
 | `healthz` responde pero `/v1/feed` no | Falta el token o se envía como query en un cliente que no lo soporta. |
+| `make test-stage6` falla en «s5a listening» | El puerto por defecto **4719** está ocupado por un `sttd` en marcha; para la suite, servidor parado. |
 
 ### 7.5 Seguridad
 
