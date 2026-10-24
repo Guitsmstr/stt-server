@@ -135,8 +135,10 @@ parec (micrófono) ──pipe──→ stt stream ──stdout NDJSON──→ s
 ```
 
 - **Un binario aparte** (`core/cmd/sttd`), no una capa del núcleo (I3).
-  Arranca y supervisa la captura + `stt stream`, lee su **stdout** línea a
-  línea y publica cada evento en el hub WebSocket sin transformarlo (I5).
+  Arranca y supervisa su **comando de sesión** (D20: por defecto
+  `scripts/stt-mic.sh`, que encapsula la captura + `stt stream`), lee su
+  **stdout** línea a línea y publica cada evento en el hub WebSocket sin
+  transformarlo (I5).
 - **Una sesión activa a la vez**: `idle → running → eof → idle`. Los clientes
   pueden conectar en `idle` (*attach perezoso*, `session:null`) y esperar el
   siguiente `start`. La RAM del dispositivo (un adaptador activo = 160–260 MB)
@@ -263,6 +265,7 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | **D17** | 2026-10-23 | **`stt-remote/1` sobre WebSocket** con token Bearer estático, clientes receive-only, `hello` → replay de `start` → eventos → `eof`, attach perezoso y `1013` para clientes lentos | REST con polling (latencia inaceptable para dictado); SSE (válido pero unidireccional y sin binario; el usuario eligió WS); gRPC (codegen y peso innecesarios en musl/estático) | Contrato nuevo en CONTRATOS §9; los navegadores necesitan `?token=`; v1 sin historial (`replay_finals` reservado); deja la puerta abierta a control futuro por mensajes `stt-remote/*` |
 | **D18** | 2026-10-23 | **Bind por defecto `127.0.0.1`**, escucha en LAN sólo con `--listen`/`[server] listen` explícito; **sin TLS en v1** (túnel SSH/`adb forward` o proxy delante) | TLS con certificado autofirmado (gestión de certificados y plugins que lo rechazan); exponer `0.0.0.0` por defecto (un token en claro por LAN es el escenario peor); mDNS (se evalúa en S6.6) | Para LAN hay que optar conscientemente y usar token; el camino seguro por defecto sigue siendo loopback (`adb forward`) o SSH; documentado en OPERACION §7 |
 | **D19** | 2026-10-23 | **Una sola dependencia de WebSocket, vendorizada**: `github.com/coder/websocket` (ISC, sin dependencias transitivas, `go mod vendor`) para el servidor y el cliente de referencia | RFC 6455 a mano (~300 líneas; cero dependencias, pero fragmentation/close-handshake mal implementados son un fallo de seguridad y de interop); `gorilla/websocket` (BSD-2, más API de la necesaria) | Builds siguen pudiendo ser offline (`-mod=vendor`); hay que anotar la licencia de terceros en README al publicar; si la dependencia desaparece, el contrato §9 permite cambiar de librería sin tocar clientes |
+| **D20** | 2026-10-24 | **Supervisión por comando de sesión**: `sttd` arranca y supervisa un único comando (`--pipeline` / `[server] pipeline`; por defecto `scripts/stt-mic.sh [--engine NAME]`) cuyo stdout emite `stt-events/1`; el ciclo `idle → running → eof` se expresa sobre ese comando | `sttd` lanzando `parec` + `stt stream` como procesos propios (acopla el servidor a la captura y duplica `stt-mic.sh`); `stt-serve.sh` lanzando la captura y `sttd` leyendo un pipe (el ciclo de vida quedaría en el script, no en el servidor, y §9.5 exige que lo controle el teléfono vía `sttd`) | Los presets de motor siguen vivos en `scripts/stt-mic.sh`; demos y tests usan `--pipeline` con una fuente sintética sin tocar el servidor; si cambia la captura, `sttd` no cambia (R4/R5: aclaración compatible ya anotada en CONTRATOS §9.5) |
 
 ---
 

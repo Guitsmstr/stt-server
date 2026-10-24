@@ -1,9 +1,9 @@
-.PHONY: all core adapters models test test-stage2 test-stage3 test-soak test-stage4 test-stage5 clean
+.PHONY: all core adapters models test test-stage2 test-stage3 test-soak test-stage4 test-stage5 test-stage6 clean
 
 all: core adapters
 
 core:
-	cd core && go vet ./... && go build -o ../var/bin/stt ./cmd/stt
+	cd core && go vet ./... && go build -o ../var/bin/stt ./cmd/stt && go build -o ../var/bin/sttd ./cmd/sttd
 
 adapters:
 	$(MAKE) -C adapters/echo
@@ -35,6 +35,9 @@ test-stage4: all
 
 test-stage5: all
 	sh tests/run-stage5-tests.sh
+
+test-stage6: all
+	sh tests/run-stage6-tests.sh
 
 clean:
 	rm -f var/bin/stt

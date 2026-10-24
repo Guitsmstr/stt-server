@@ -305,8 +305,9 @@ evento `stt-events/1`. La demo de voz humana de S4.3 se cerró en la Sesión 007
 
 Contrato de la **entrega** del texto a clientes de red (apps, plugins de
 agente, navegadores). El servidor `sttd` no interpreta ni reescribe la
-salida: reenvía `stt-events/1` **tal cual**. Especificado en la Sesión 013;
-la implementación es S6.2–S6.5.
+salida: reenvía `stt-events/1` **tal cual**. Especificado en la Sesión 013; **implementado en la Sesión 015**
+(S6.2–S6.5: `core/internal/server` + `core/cmd/sttd` +
+`clients/agent-plugin/`).
 
 ```
 micrófono → stt stream (núcleo, sin cambios) → stdout NDJSON
@@ -385,6 +386,12 @@ Reglas:
 | Situación | Comportamiento |
 |---|---|
 | Cliente lento (cola de 256 eventos llena) | Se cierra **sólo** a ese cliente con `1013` (Try Again Later); el pipeline y los demás clientes siguen |
+
+> Nota (implementación, S6.3/S6.4): un cliente que **no lee** en absoluto
+> puede observar un cierre abrupto en lugar del `1013`: su propia ventana TCP
+> está llena y el frame de cierre no cabe en ella. La garantía del contrato es
+> la **desconexión aislada** de ese cliente; el `1013` es el cierre ordenado
+> que verán los clientes que sigan leyendo.
 | Cliente desconecta | Se libera su cola; no afecta al núcleo ni a otros clientes |
 | Más de `[server] max_clients` (8) | El upgrade se rechaza con HTTP `503` |
 | Pipeline activo termina | `eof` a todos, drenaje acotado (2 s), cierre `1000` |
@@ -395,8 +402,10 @@ Reglas:
 ### 9.5 Ciclo de vida de la sesión
 
 El ciclo lo controla **el teléfono** (script local o `stt-serve.sh`), nunca el
-cliente: `sttd` arranca/supervisa `stt stream` + captura de micrófono y, al
-terminar, emite `eof` y queda a la espera de la siguiente sesión. Rotura del
+cliente: `sttd` arranca/supervisa su **comando de sesión** — por defecto
+`scripts/stt-mic.sh`, que encapsula la captura de micrófono + `stt stream`
+(**aclaración compatible**, D20) — y republica los `stt-events/1` de su
+stdout; al terminar, emite `eof` y queda a la espera de la siguiente sesión. Rotura del
 núcleo o del adaptador → `{"type":"error",...,"fatal":true}` a los clientes
 y reconexión del pipeline según la política del runner (máx 3 en 60 s).
 

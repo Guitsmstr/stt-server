@@ -8,7 +8,7 @@ mediante adaptadores (contratos definidos en `docs/CONTRATOS.md`).
 audio PCM ──→ [ stt (Go) ] ──→ NDJSON `stt-events/1`
                  │                 ├──→ stdout (tubería, archivo, TTY)
                  │                 ├──→ --out tcp:// | unix://   (fan-out, N clientes)
-                 │                 └──→ sttd ──ws://──→ apps y plugins   (Stage 6, planificado)
+                 │                 └──→ sttd ──ws://──→ apps y plugins   (Stage 6)
                  │
                  └── subproceso: adaptador de modelo (C++)
 ```
@@ -23,7 +23,7 @@ servidor: [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9.
 
 | | |
 |---|---|
-| **Estado** | Stage 5 — ✅ cerrado (Sesión 012): sherpa-onnx streaming ES/EN + fan-out `--out`. **Stage 6 — planificado (Sesión 013)**: servidor WebSocket `sttd` para apps y plugins (teléfono → clientes). Ver [`PROGRESO.md`](PROGRESO.md). |
+| **Estado** | Stage 5 — ✅ cerrado (Sesión 012): sherpa-onnx streaming ES/EN + fan-out `--out`. **Stage 6 — 🟡 ejecutado (Sesión 015)**: servidor WebSocket `sttd` (`stt-remote/1`), token, cliente de referencia y suite `make test-stage6`; pendiente la evidencia con micrófono real (S6.3/S6.5/S6.6 en vivo) para el cierre. Ver [`PROGRESO.md`](PROGRESO.md). |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -45,8 +45,9 @@ servidor: [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9.
 stt/
 ├── README.md, PROGRESO.md      ← entrada y estado
 ├── docs/                       ← plan, reglas, arquitectura, contratos, prerequisitos
-├── core/                       ← módulo Go del núcleo (cmd/, internal/)
+├── core/                       ← módulo Go del núcleo (cmd/stt, cmd/sttd, internal/)
 ├── adapters/                   ← adaptadores de modelo (echo, moonshine, sherpa — C++)
+├── clients/agent-plugin/       ← cliente de referencia WS (plugin de agente, Go)
 ├── config/                     ← stt.toml
 ├── scripts/                    ← fetch-model, fetch-sherpa, setup/captura de micrófono
 ├── tests/                      ← pruebas de protocolo, audio real (assets/)

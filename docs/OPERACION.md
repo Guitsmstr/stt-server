@@ -221,11 +221,14 @@ regresiones completas de stages 1–4 se pueden encadenar con
   expongas el puerto a una red no confiable. (El servidor del Stage 6 —§7—
   añade token y bind a loopback por defecto; el fan-out se mantiene igual.)
 
-## 7. Servidor remoto `sttd` (Stage 6 — planificado)
+## 7. Servidor remoto `sttd` (Stage 6 — implementado)
 
-> **Estado**: alcance, contrato `stt-remote/1` y decisiones D16–D19 aprobados
-> en la Sesión 013. La implementación son los checks S6.2–S6.6; hasta que
-> estén en verde, **los comandos de esta sección no existen**.
+> **Estado**: implementado en la Sesión 015 (S6.2–S6.6): binario `sttd`,
+> token `var/etc/stt-token`, `scripts/stt-serve.sh`, cliente de referencia
+> `clients/agent-plugin/` y suites `make test-stage6` /
+> `tests/run-stage6-soak.sh`. Contrato `stt-remote/1` en CONTRATOS §9;
+> decisiones D16–D20 en ARQUITECTURA §8. **Pendiente de evidencia**: la demo
+> con micrófono real (S6.3/S6.5 en vivo) — ver PROGRESO.
 
 Objetivo: que un **plugin de agente** (u otra app) en el Mac o en la LAN
 reciba en vivo el texto del micrófono del teléfono. El teléfono escucha y
@@ -243,7 +246,10 @@ entrega; el cliente **solo escucha** (no envía audio ni comandos).
 ```
 
 El script mantiene un **wakelock** de Termux: con la pantalla apagada Android
-suspende la captura si no lo hay.
+suspende la captura si no lo hay (best-effort: si `termux-wake-lock` no existe,
+lo avisa y sigue). `--show-token` imprime el token; `--pipeline CMD` sustituye
+la sesión completa (captura + `stt stream`) por un comando propio — útil para
+demos y pruebas sin micrófono (S6.3/S6.6 lo usan con fuentes sintéticas).
 
 ### 7.2 Conectar desde el Mac (de más a menos seguro)
 
@@ -268,11 +274,14 @@ cabecera `Authorization`, leer mensajes de texto y quedarse con los
 
 - Si no hay sesión activa, la conexión se acepta con `hello` y `"session":null`:
   el plugin espera y recibe `start` cuando empiezas a hablar (attach perezoso).
-- Cada sesión acaba con `eof`; el servidor queda listo para la siguiente.
+- Cada sesión acaba con `eof`; el servidor cierra la conexión con `1000` y
+  queda listo para la siguiente sesión: el cliente debe **reconectar** para
+  oír la siguiente (`hello` con `session:null` → espera de `start`).
 - **No hay historial**: al reconectar se recibe `start` y sólo el texto
   posterior. El plugin no debe asumir que recupera lo perdido.
 - Un cliente lento se desconecta solo a él (`1013`); el micrófono y los demás
-  clientes siguen.
+  clientes siguen. Un cliente que no lee nada puede ver un cierre abrupto en
+  lugar del `1013` (su ventana TCP está llena; ver CONTRATOS §9.4).
 
 ### 7.4 Diagnóstico
 

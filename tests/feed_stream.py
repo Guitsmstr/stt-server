@@ -84,6 +84,11 @@ def main():
                          stderr=None)
 
     events = []  # {arrival, event}
+    # Clock discipline: EVERY timestamp below (arrival, rss sample t, pacing,
+    # wall_s) is time.monotonic() seconds since feed start -- never
+    # time.time(): this device's CLOCK_REALTIME steps under NTP and must not
+    # affect any reported number. t0/t1 come from the events themselves and
+    # are AUDIO seconds (latency = arrival - t1 is meaningful at speed 1).
     start = time.monotonic()
 
     def reader():

@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — planificado (aprobado en Sesión 014)**: servidor WebSocket `sttd` |
-| **Última actualización** | 2026-10-23 (Sesión 014) |
-| **Siguiente paso** | **S6.2**: `core/cmd/sttd` + `core/internal/server` (config `[server]` con parser estricto, token `0600`, `/healthz`, WS `/v1/feed` con `hello`→`start`→eventos→`eof`, attach perezoso) y sus tests Go. Orden del stage: S6.2 → S6.4 (seguridad antes de exponer red) → S6.3 → S6.5 → S6.6 → S6.7. Antes de un release: `make test-soak`. |
+| **Stage actual** | **Stage 6 — ejecutado (Sesión 015)**: servidor WebSocket `sttd`; falta evidencia con micrófono real |
+| **Última actualización** | 2026-10-24 (Sesión 015) |
+| **Siguiente paso** | **Sesión con micrófono** para cerrar S6.3/S6.5/S6.6: demo en vivo con `scripts/stt-serve.sh --engine sherpa` + plugin desde otra máquina (S6.3/S6.5), captura real + apagado limpio, y soak de 30 min con la aserción de fuga ya corregida (H). Luego **S6.7** (cierre). El trabajo pendiente de GitHub (LICENSE, identidad git) sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
 
@@ -20,7 +20,7 @@
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
 | 5 | Expansión (sherpa-onnx + salida remota) | ✅ cerrado (Sesión 012): S5.1–S5.9 ✅ |
-| 6 | Servidor remoto (`sttd` + WS `stt-remote/1`) | 🟡 planificado (Sesión 014): S6.1 ✅, S6.2–S6.7 pendientes |
+| 6 | Servidor remoto (`sttd` + WS `stt-remote/1`) | 🟡 ejecutado (Sesión 015): S6.1 ✅, S6.2 ✅, S6.4 ✅, S6.3/S6.5/S6.6 parciales (todo verificado con fuentes deterministas; falta micrófono real), S6.7 abierto |
 | 7 | API de transcripción (clientes envían audio) | ⬜ sin definir — sólo si el uso lo pide |
 
 ---
@@ -154,23 +154,134 @@ Generales (Sesión 012):
 
 ### Stage 6 — Servidor remoto (`sttd` + WebSocket `stt-remote/1`)
 
-Estado: **planificado (Sesión 014)**. Alcance aprobado por el usuario; detalle
-en [`docs/PLAN.md`](docs/PLAN.md) §Stage 6 y contrato en
+Estado: **ejecutado (Sesión 015)** — implementación completa y verificada con
+fuentes deterministas; pendiente la evidencia con micrófono real (S6.3/S6.5/
+S6.6 en vivo). Detalle en [`docs/PLAN.md`](docs/PLAN.md) §Stage 6 y contrato en
 [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9. Caso de uso: **teléfono →
 clientes** (plugins de agente), receive-only.
 
 Específicos:
 - [x] **S6.1** Alcance + contrato `stt-remote/1` escritos y aprobados — Sesión 014: PLAN §Stage 6 (S6.1–S6.7, estimación y orden), CONTRATOS §9, ARQUITECTURA D16–D19 (+§1.1 invariantes I1–I7), OPERACION §7, GLOSARIO, README. Aprobación explícita del usuario (“lets go with the plan”)
-- [ ] **S6.2** `sttd` base: `[server]` en config (parser estricto + `config_test.go`), token `var/etc/stt-token` `0600` autogenerado + `--print-token`, `GET /healthz`, WS `/v1/feed` con `hello`→`start`→eventos→`eof`, attach perezoso (`session:null`); tests Go de auth 401, orden, replay de `start` y N clientes
-- [ ] **S6.3** End-to-end con micrófono real: 2 clientes WS reciben los mismos eventos y en el mismo orden que stdout; parciales visibles con sherpa; cliente tardío recibe replay de `start`; sobrecoste p95 ≤ 20 ms (`tests/ws_probe.py`)
-- [ ] **S6.4** Seguridad y aislamiento: sin token / token erróneo → `401` antes del upgrade; comparación en tiempo constante; bind por defecto `127.0.0.1` y LAN opt-in; cliente lento aislado (`1013`); `max_clients` → `503`
-- [ ] **S6.5** Cliente de referencia (plugin de agente) en `clients/agent-plugin/`: reconexión con backoff, filtro de `final`, sin duplicados; demo en vivo registrada
-- [ ] **S6.6** Operación: `scripts/stt-serve.sh` (captura + `sttd` + wakelock + limpieza), apagado limpio y reinicio; soak de 30 min con cliente conectado (RSS estable, sin fugas de conexiones)
-- [ ] **S6.7** Cierre del stage: G1–G6, regresiones stages 1–5, `make test-stage6` en verde, docs sincronizadas
+- [x] **S6.2** `sttd` base — **Sesión 015**: `core/internal/server` (hub WS con `hello`→replay de `start`→eventos verbatim→`eof`, cola 256/cliente, ping 20 s/pong 60 s) + `core/cmd/sttd` (supervisión del comando de sesión, D20) + `[server]` en config (parser estricto) + token `var/etc/stt-token` `0600` autogenerado + `--print-token`; tests Go: auth 401, orden verbatim, replay, N clientes, `hello` perezoso/activo, `healthz`, close 1000/1001/1011/1013. Evidencia en bitácora Sesión 015
+- [ ] **S6.3** End-to-end con micrófono real — **parcial (Sesión 015)**: todo lo demás verificado con fuentes deterministas (`tests/run-stage6-tests.sh`, 2 corridas verdes): 2 clientes + mirror con 10 eventos idénticos en el mismo orden y close 1000; cliente tardío con `hello`(sesión) + replay de `start`; núcleo real (echo): 30 eventos/60 muestras, **p95 WS-vs-stdout 0.95–2.99 ms ≤ 20 ms**; parciales de sherpa (7) sobre WS. **Falta**: la variante con micrófono (sin `pactl`/`parec` en este entorno)
+- [x] **S6.4** Seguridad y aislamiento — **Sesión 015**: sin token / token erróneo → `401` antes del upgrade (sin revelar existencia del token); comparación en tiempo constante (SHA-256 + `subtle.ConstantTimeCompare`); bind por defecto `127.0.0.1` verificado (`ws://127.0.0.1:4719`, LAN solo con `--listen` explícito); `?token=` funciona; cliente lento aislado (sólo él caído; el sano recibió 603 mensajes, close 1000); `max_clients 2` → `503`; churn 20 → 2/2 frescos. Evidencia en bitácora Sesión 015
+- [ ] **S6.5** Cliente de referencia (plugin de agente) — **parcial (Sesión 015)**: `clients/agent-plugin/` (módulo Go `stt-client`, WS vendorizado) con reconexión con backoff (observado 265→439→875 ms→2.08 s tras `kill -9`), filtro de `final`, dedupe **por sesión** (7/7 tests); demo en vivo registrada con motor real (sherpa kroko EN → `sttd` → plugin: parciales palabra a palabra + 6 finales; reconexión con `kill -9`: 0 duplicados). **Falta**: demo con micrófono real
+- [ ] **S6.6** Operación — **parcial (Sesión 015)**: `scripts/stt-serve.sh` (wakelock best-effort, toma de instancia única, limpieza sin procesos residuales, `--pipeline` para demos) + `tests/run-stage6-soak.sh` (`--quick` 3 min + 30 min): quick **SOAK OK** (361/361 eventos, 3 sesiones, RSS +3.6 %, churn 6+30, 8/8 frescos, apagado limpio); 30 min: **3601/3601 eventos, 6 sesiones, sin fugas de conexiones**; RSS sin fuga por tendencia (2ª mitad −72 kB/min) — aserción de fuga endurecida y validada en Sesión 015 (ver bitácora). **Falta**: captura real del micrófono vía `stt-serve.sh` y la corrida definitiva de 30 min con la aserción final
+- [ ] **S6.7** Cierre del stage: G1–G6 parciales (ver bitácora Sesión 015); regresiones 1–5 en verde salvo stage 4 live (sin micrófono); `make test-stage6` en verde; docs sincronizadas. **Cierra con la sesión de micrófono real**
 
 ---
 
 ## Bitácora
+
+### Sesión 015 — 2026-10-24
+**Alcance**: ejecutar el **Stage 6** (S6.2 → S6.4 → S6.3 → S6.5 → S6.6) hasta
+donde el entorno permite **sin micrófono** (`pactl`/`parec` no existen en este
+chroot). Lo de GitHub (LICENSE, identidad git, visibilidad) queda **congelado
+por decisión del usuario**. Sesión dirigida con subagentes (glm-5.3) por
+tareas acotadas con compuertas de calidad; esta bitácora consolida evidencia.
+
+**Implementado**
+- **S6.2 — `sttd`**: `core/internal/server` (hub WS: `hello` con attach
+  perezoso (`session:null`), replay de `start`, eventos **verbatim**
+  (`stt-events/1` por mensaje), cola 256/cliente, ping 20 s / pong 60 s,
+  drenaje 2 s y cierre `1000` tras `eof`, `1001` al apagar, `1011` en muerte
+  fatal) + `core/cmd/sttd` (supervisión del **comando de sesión** — D20 — con
+  política del runner máx 3/60 s; mirror opcional de eventos a stdout con
+  `STTD_MIRROR_STDOUT=1`) + sección `[server]` en config (parser estricto) +
+  token `var/etc/stt-token` (64 hex, `0600`, autogenerado, `--print-token`,
+  comparación en tiempo constante). Dependencia WS única vendorizada (D19).
+- **S6.4**: `401` antes del upgrade (Bearer o `?token=`; no revela si el token
+  existe), `503` en `max_clients`, cliente lento aislado (`1013`), bind por
+  defecto `127.0.0.1` (LAN sólo con `--listen` explícito).
+- **S6.3 harness**: `tests/ws_probe.py` (cliente WS mínimo en Python puro,
+  subcomandos `collect/compare/churn/slow/status`) + `tests/run-stage6-tests.sh`
+  + `make test-stage6`.
+- **S6.5**: `clients/agent-plugin/` (módulo Go `stt-client`, websocket
+  vendorizado): reconexión con backoff+jitter, filtro de `final` (`--partials`
+  opcional), dedupe por sesión, resumen al salir (`events surfaced /
+  duplicates_suppressed / reconnects`).
+- **S6.6**: `scripts/stt-serve.sh` (wakelock best-effort, toma de instancia
+  única, `--pipeline`, limpieza sin procesos residuales) +
+  `tests/run-stage6-soak.sh` (`--quick` 3 min / 30 min).
+
+**Hallazgos de calidad (tests deterministas, no flaky)**
+1. *Close-handshake WS*: cancelar el `ctx` de `coder/websocket` cerraba el TCP
+   antes de escribir el frame de cierre → los clientes veían EOF en vez de
+   `1000/1011/1013`. Solución: un solo dueño del cierre (write-loop →
+   `Close(code)` → `CloseNow`) + un `once.Do` circular que consumía el
+   presupuesto de drenaje. `go test ./internal/server -count=10` verde.
+2. *Cliente lento*: el kernel absorbe 1–4 MiB (`tcp_wmem`), así que la
+   inundación debe superarlos (600 mensajes de ~31 KB, `SO_RCVBUF` 4 KB) para
+   que el desbordamiento de cola sea determinista. Nota de contrato añadida en
+   CONTRATOS §9.4: un cliente que **no lee** puede ver cierre abrupto (su
+   ventana TCP está llena); la garantía es la desconexión aislada.
+3. *Soak RSS* (2 iteraciones de la aserción): `Δ ≤ 10 %` no distingue warm-up
+   de fuga (serie real: 1ª mitad +1.9 MB, 2ª mitad en meseta). Aserción final:
+   **tendencia de la 2ª mitad ≤ +10 kB/min** + guardia absoluta 64 MB,
+   validada en ambos sentidos (serie real pasa; fuga sintética +90 kB/min
+   falla). `soak-summary.json` ahora se escribe también al fallar, con los
+   contadores de churn tomados del fichero (antes quedaban a 0).
+4. *Corrección de premisa*: `tests/feed_stream.py` ya usaba `time.monotonic()`
+   desde el inicio; las latencias negativas son la semántica documentada de
+   `--speed > 1` (tiempo de llegada vs segundos de audio), no un reloj roto.
+5. *Dedupe del plugin por sesión*: audio idéntico transcrito en dos sesiones
+   distintas **no** debe suprimirse (test nuevo `TestNoCrossSessionSuppression`);
+   la supresión intra-sesión (replay tras reconexión) se mantiene.
+6. *Flip conocido S5.8*: el cliente tardío fijo a 1.0 s puede llegar antes de
+   que sherpa termine de cargar el modelo (12.3 s) y fallar en la 1ª corrida
+   (re-run verde). Registrado; sin cambios (stage 5 cerrado).
+
+**Demos registradas (S6.5; sin micrófono — fuente determinista a tiempo real)**
+- Motor real `sherpa kroko EN` → `sttd` → plugin: **13 eventos** (7 parciales
+  palabra a palabra + 6 finales; texto Beckett completo) y modo filtro `final`
+  (**6 eventos**, 0 parciales). Artefactos en `var/tmp/stage6-soak/demo/`.
+- Reconexión en caliente: `kill -9` de `sttd` a mitad de sesión → backoff
+  **265 → 439 → 875 ms → 2.08 s**, reconexión a la sesión siguiente y
+  **0 duplicados** (tras el fix de dedupe por sesión).
+
+**Evidencia de suites** (`var/tmp/stage6-soak/`)
+- `make test-stage6` **2 corridas verdes** (75 s, `ALL STAGE 6 CHECKS OK`):
+  fixture de 10 eventos idénticos en 2 clientes + mirror (close 1000); cliente
+  tardío (`hello` con sesión + replay de `start`); núcleo real echo: 30
+  eventos/60 muestras, **p95 WS-vs-stdout 0.953–2.993 ms ≤ 20 ms**; parciales
+  de sherpa (7) sobre WS; 401 (sin token y token erróneo); `?token=` ok;
+  bind loopback; `max_clients 2` → 503; cliente lento caído solo (el sano
+  recibió 603 mensajes, close 1000); churn 20 → 2/2 frescos.
+- Go: `go vet ./...` limpio; `go test ./...` verde (`internal/server` 0.39 s;
+  `-count=10` verde); `clients/agent-plugin`: 7/7 tests, `go vet` limpio.
+- Regresiones: `make test` ✅; stage 2 ✅; stage 3 ✅ en tranquilo (steady máx
+  **0.543 s**, p95 0.500 s); stage 5 ✅ (re-run tras el flip S5.8); stage 4
+  live **no re-ejecutado** (sin micrófono; última evidencia verde: Sesión 012).
+  Bajo carga paralela el stage 3 marcó 1.055 s > 0.8 s: ruido ambiental de
+  CPU (el pipeline no se tocó), confirmado con la re-corrida en tranquilo.
+- Soak 30 min: run 1 (aserción antigua) FAIL por warm-up (diagnóstico: sin
+  fuga); run 2: **3601/3601 eventos, 6 sesiones, churn 60/60, tendencia 2ª
+  mitad −72 kB/min** (sin fuga); run 3 con la aserción final corregida en
+  curso al cerrar esta bitácora (`var/tmp/stage6-soak/bg3.log`).
+
+**Archivos tocados**: `core/internal/{config,server}/`, `core/cmd/sttd/`,
+`core/go.mod`, `core/go.sum`, `core/vendor/`, `tests/ws_probe.py`,
+`tests/run-stage6-tests.sh`, `tests/run-stage6-soak.sh`, `tests/feed_stream.py`
+(sólo comentario), `scripts/stt-serve.sh`, `clients/agent-plugin/`, `Makefile`,
+`docs/{ARQUITECTURA,CONTRATOS,OPERACION,PLAN}.md`, `README.md`, `PROGRESO.md`.
+
+**Checks**: G1 ✅ (build limpio: `go vet` + `stt`/`sttd`/plugin + tests); G2 ✅
+(evidencia arriba); G3 ✅ (docs sincronizadas; D20 registrada); G4 ✅ (esta
+bitácora); G5 ✅ parcial (stages 1, 2, 3 y 5 en verde; stage 4 live pendiente
+de micrófono — sin cambios de núcleo); G6 ✅ (artefactos solo en `var/`; sin
+TODOs). S6.2 ✅, S6.4 ✅; S6.3/S6.5/S6.6 parciales con nota (R3); S6.7 abierto.
+
+**Decisiones nuevas**: **D20** — `sttd` supervisa un único *comando de sesión*
+(`--pipeline`/`[server] pipeline`, por defecto `scripts/stt-mic.sh`), que
+encapsula captura + `stt stream` (ARQUITECTURA §8; aclaración compatible en
+CONTRATOS §9.5).
+
+**Siguiente paso**: sesión **con micrófono real** (teléfono con Termux +
+PulseAudio): `./scripts/stt-serve.sh --engine sherpa` con
+`clients/agent-plugin` desde otra máquina (S6.3/S6.5 en vivo), captura real +
+apagado limpio y soak de 30 min con la aserción final (S6.6); después
+**S6.7** (cierre con G1–G6). Lo de GitHub sigue congelado por decisión del
+usuario.
 
 ### Sesión 014 — 2026-10-23
 **Alcance**: definir y aprobar el **Stage 6** (servidor remoto para apps y

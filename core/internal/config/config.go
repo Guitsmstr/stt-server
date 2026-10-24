@@ -49,6 +49,17 @@ type Output struct {
 	Listen   string // optional fan-out listener: tcp://host:port or unix:///path
 }
 
+// Server tunes the sttd remote service (docs/CONTRATOS.md §9, decision D16).
+type Server struct {
+	Listen     string // bind address; LAN requires an explicit 0.0.0.0 (D18)
+	Token      string // inline bearer token; empty = use TokenFile
+	TokenFile  string // static token storage, generated on first run
+	MaxClients int
+	Engine     string // hello.session.engine descriptor
+	Pipeline   string // session command, verbatim; empty = scripts/stt-mic.sh
+	Partials   bool   // hello.session.partials descriptor
+}
+
 // Config is the resolved configuration.
 type Config struct {
 	Audio   Audio
@@ -56,6 +67,7 @@ type Config struct {
 	Adapter Adapter
 	Runner  Runner
 	Output  Output
+	Server  Server
 }
 
 // Default returns the built-in configuration (equal to config/stt.toml).
@@ -69,6 +81,12 @@ func Default() Config {
 		Adapter: Adapter{Cmd: "adapters/echo/stt-adapter-echo"},
 		Runner:  Runner{MaxRestarts: 3, RestartWindowS: 60},
 		Output:  Output{Partials: false, Listen: ""},
+		Server: Server{
+			Listen:     "127.0.0.1:4719", // loopback only; LAN is opt-in (D18)
+			Token:      "",
+			TokenFile:  "var/etc/stt-token",
+			MaxClients: 8,
+		},
 	}
 }
 
@@ -168,6 +186,20 @@ func assign(c *Config, section, key, val string) error {
 		return setBool(val, &c.Output.Partials)
 	case "output.listen":
 		return setString(val, &c.Output.Listen)
+	case "server.listen":
+		return setString(val, &c.Server.Listen)
+	case "server.token":
+		return setString(val, &c.Server.Token)
+	case "server.token_file":
+		return setString(val, &c.Server.TokenFile)
+	case "server.max_clients":
+		return setInt(val, &c.Server.MaxClients)
+	case "server.engine":
+		return setString(val, &c.Server.Engine)
+	case "server.pipeline":
+		return setString(val, &c.Server.Pipeline)
+	case "server.partials":
+		return setBool(val, &c.Server.Partials)
 	default:
 		return fmt.Errorf("unknown key %q in section %q", key, section)
 	}

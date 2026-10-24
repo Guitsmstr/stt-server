@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 5 — ✅ cerrado (Sesión 012); **Stage 6 — planificado y aprobado (Sesión 013)**: servidor WS `sttd`. Ver PROGRESO.md |
+| **Estado actual** | Stage 5 — ✅ cerrado (Sesión 012); **Stage 6 — 🟡 ejecutado (Sesión 015)**: servidor WS `sttd` + cliente de referencia implementados y verificados con fuentes deterministas; pendiente evidencia con micrófono real (S6.3/S6.5/S6.6 en vivo) y cierre S6.7. Ver PROGRESO.md |
 | **Última actualización** | 2026-10-23 (Sesión 013) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
@@ -159,7 +159,7 @@ Convención: cada stage tiene **checks generales** (G1–G6, definidos en
   TCP y Unix con p95 de sobrecoste < 1 ms y sin que una desconexión afecte al
   pipeline.
 
-### Stage 6 — Servidor remoto (`sttd` + WebSocket) — **planificado (Sesión 013)**
+### Stage 6 — Servidor remoto (`sttd` + WebSocket) — **ejecutado (Sesión 015)**
 
 - **Objetivo**: que apps y **plugins de agente** consuman el texto del
   micrófono del teléfono como si fuera un servicio de red (caso **F2**: el

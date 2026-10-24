@@ -23,6 +23,18 @@ func TestDefaults(t *testing.T) {
 	if c.Output.Listen != "" {
 		t.Fatalf("fan-out listener must default to empty, got %q", c.Output.Listen)
 	}
+	wantServer := Server{
+		Listen:     "127.0.0.1:4719",
+		Token:      "",
+		TokenFile:  "var/etc/stt-token",
+		MaxClients: 8,
+		Engine:     "",
+		Pipeline:   "",
+		Partials:   false,
+	}
+	if c.Server != wantServer {
+		t.Fatalf("server defaults: %+v, want %+v", c.Server, wantServer)
+	}
 }
 
 func TestLoadMissingFile(t *testing.T) {
@@ -110,5 +122,59 @@ func TestParseUnknownKey(t *testing.T) {
 	}
 	if _, err := Load(path, true); err == nil {
 		t.Fatal("unknown key must error")
+	}
+}
+
+func TestParseServerSection(t *testing.T) {
+	src := `
+[server]
+listen = "0.0.0.0:4719"
+token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+token_file = "var/etc/other-token"
+max_clients = 4
+engine = "sherpa-zipformer-en-kroko"
+pipeline = "scripts/stt-mic.sh --engine sherpa-zipformer-en-kroko"
+partials = true
+`
+	path := filepath.Join(t.TempDir(), "stt.toml")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Server{
+		Listen:     "0.0.0.0:4719",
+		Token:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		TokenFile:  "var/etc/other-token",
+		MaxClients: 4,
+		Engine:     "sherpa-zipformer-en-kroko",
+		Pipeline:   "scripts/stt-mic.sh --engine sherpa-zipformer-en-kroko",
+		Partials:   true,
+	}
+	if c.Server != want {
+		t.Fatalf("server section: %+v, want %+v", c.Server, want)
+	}
+}
+
+func TestParseServerErrors(t *testing.T) {
+	cases := map[string]string{
+		"unknown key":       "[server]\nlisteen = \"0.0.0.0:4719\"\n",
+		"wrong type int":    "[server]\nmax_clients = \"eight\"\n",
+		"wrong type bool":   "[server]\npartials = \"yes\"\n",
+		"wrong type string": "[server]\nengine = 42\n",
+		"unquoted string":   "[server]\nlisten = 127.0.0.1:4719\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bad.toml")
+			if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path, true); err == nil {
+				t.Fatal("invalid [server] config must error")
+			}
+		})
 	}
 }
