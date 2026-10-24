@@ -23,7 +23,7 @@ servidor: [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9.
 
 | | |
 |---|---|
-| **Estado** | Stage 5 — ✅ cerrado (Sesión 012): sherpa-onnx streaming ES/EN + fan-out `--out`. **Stage 6 — 🟡 ejecutado (Sesión 015)**: servidor WebSocket `sttd` (`stt-remote/1`), token, cliente de referencia y suite `make test-stage6`; pendiente la evidencia con micrófono real (S6.3/S6.5/S6.6 en vivo) para el cierre. Ver [`PROGRESO.md`](PROGRESO.md). |
+| **Estado** | **Stage 6 — ✅ cerrado (Sesión 016)**: servidor WebSocket `sttd` (`stt-remote/1`), token, cliente de referencia y suite `make test-stage6`; demo en vivo registrada con micrófono real (S6.3/S6.5/S6.6) y batería completa de cierre (S6.7). Stages 1–5 ✅. Ver [`PROGRESO.md`](PROGRESO.md). |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |

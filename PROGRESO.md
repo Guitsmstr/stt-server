@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ejecutado (Sesión 015)**: servidor WebSocket `sttd`; falta evidencia con micrófono real |
-| **Última actualización** | 2026-10-24 (Sesión 015) |
-| **Siguiente paso** | **Sesión con micrófono real** para cerrar S6.3/S6.5/S6.6: demo en vivo con `scripts/stt-serve.sh --engine sherpa` + plugin desde otra máquina (S6.3/S6.5), captura real + apagado limpio (S6.6). Luego **S6.7** (cierre). El trabajo pendiente de GitHub (LICENSE, identidad git) sigue **congelado por decisión del usuario**. |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**: demo en vivo con micrófono real (S6.3/S6.5/S6.6) + batería completa de cierre (S6.7) |
+| **Última actualización** | 2026-10-24 (Sesión 016) |
+| **Siguiente paso** | Sin stage definido: Stage 7 (clientes envían audio) sólo si el uso lo pide. El trabajo pendiente de GitHub (LICENSE, identidad git) sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
 
@@ -20,7 +20,7 @@
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
 | 5 | Expansión (sherpa-onnx + salida remota) | ✅ cerrado (Sesión 012): S5.1–S5.9 ✅ |
-| 6 | Servidor remoto (`sttd` + WS `stt-remote/1`) | 🟡 ejecutado (Sesión 015): S6.1 ✅, S6.2 ✅, S6.4 ✅, S6.3/S6.5/S6.6 parciales (todo verificado con fuentes deterministas; falta micrófono real), S6.7 abierto |
+| 6 | Servidor remoto (`sttd` + WS `stt-remote/1`) | ✅ cerrado (Sesión 016): S6.1–S6.7 ✅ (demo en vivo con micrófono real registrada) |
 | 7 | API de transcripción (clientes envían audio) | ⬜ sin definir — sólo si el uso lo pide |
 
 ---
@@ -154,24 +154,77 @@ Generales (Sesión 012):
 
 ### Stage 6 — Servidor remoto (`sttd` + WebSocket `stt-remote/1`)
 
-Estado: **ejecutado (Sesión 015)** — implementación completa y verificada con
-fuentes deterministas; pendiente la evidencia con micrófono real (S6.3/S6.5/
-S6.6 en vivo). Detalle en [`docs/PLAN.md`](docs/PLAN.md) §Stage 6 y contrato en
+Estado: **✅ cerrado (Sesión 016)** — implementación verificada con fuentes
+deterministas (Sesión 015) y demo en vivo con micrófono real registrada
+(Sesión 016). Detalle en [`docs/PLAN.md`](docs/PLAN.md) §Stage 6 y contrato en
 [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9. Caso de uso: **teléfono →
 clientes** (plugins de agente), receive-only.
 
 Específicos:
 - [x] **S6.1** Alcance + contrato `stt-remote/1` escritos y aprobados — Sesión 014: PLAN §Stage 6 (S6.1–S6.7, estimación y orden), CONTRATOS §9, ARQUITECTURA D16–D19 (+§1.1 invariantes I1–I7), OPERACION §7, GLOSARIO, README. Aprobación explícita del usuario (“lets go with the plan”)
 - [x] **S6.2** `sttd` base — **Sesión 015**: `core/internal/server` (hub WS con `hello`→replay de `start`→eventos verbatim→`eof`, cola 256/cliente, ping 20 s/pong 60 s) + `core/cmd/sttd` (supervisión del comando de sesión, D20) + `[server]` en config (parser estricto) + token `var/etc/stt-token` `0600` autogenerado + `--print-token`; tests Go: auth 401, orden verbatim, replay, N clientes, `hello` perezoso/activo, `healthz`, close 1000/1001/1011/1013. Evidencia en bitácora Sesión 015
-- [ ] **S6.3** End-to-end con micrófono real — **parcial (Sesión 015)**: todo lo demás verificado con fuentes deterministas (`tests/run-stage6-tests.sh`, 2 corridas verdes): 2 clientes + mirror con 10 eventos idénticos en el mismo orden y close 1000; cliente tardío con `hello`(sesión) + replay de `start`; núcleo real (echo): 30 eventos/60 muestras, **p95 WS-vs-stdout 0.95–2.99 ms ≤ 20 ms**; parciales de sherpa (7) sobre WS. **Falta**: la variante con micrófono (sin `pactl`/`parec` en este entorno)
+- [x] **S6.3** End-to-end con micrófono real — **Sesión 015** (determinista): 2 clientes + mirror con 10 eventos idénticos en el mismo orden y close 1000; cliente tardío con `hello`(sesión) + replay de `start`; núcleo real (echo): 30 eventos/60 muestras, **p95 WS-vs-stdout 0.95–2.99 ms ≤ 20 ms**; parciales de sherpa (7) sobre WS. **Sesión 016** (micrófono real, voz humana leyendo Beckett vía `stt-serve.sh --engine sherpa`): 2 clientes `ws_probe compare` → **34/34 mensajes idénticos en el mismo orden, close 1000** tras `eof`; cliente tardío (+12 s) → `hello` con sesión activa + replay de `start` → eventos → **`eof` último, close 1000** (35 mensajes); partials palabra a palabra en el stream crudo. Evidencia: `var/tmp/stage6/live/{compare.json,late.json}` (no versionado) + bitácora
 - [x] **S6.4** Seguridad y aislamiento — **Sesión 015**: sin token / token erróneo → `401` antes del upgrade (sin revelar existencia del token); comparación en tiempo constante (SHA-256 + `subtle.ConstantTimeCompare`); bind por defecto `127.0.0.1` verificado (`ws://127.0.0.1:4719`, LAN solo con `--listen` explícito); `?token=` funciona; cliente lento aislado (sólo él caído; el sano recibió 603 mensajes, close 1000); `max_clients 2` → `503`; churn 20 → 2/2 frescos. Evidencia en bitácora Sesión 015
-- [ ] **S6.5** Cliente de referencia (plugin de agente) — **parcial (Sesión 015)**: `clients/agent-plugin/` (módulo Go `stt-client`, WS vendorizado) con reconexión con backoff (observado 265→439→875 ms→2.08 s tras `kill -9`), filtro de `final`, dedupe **por sesión** (7/7 tests); demo en vivo registrada con motor real (sherpa kroko EN → `sttd` → plugin: parciales palabra a palabra + 6 finales; reconexión con `kill -9`: 0 duplicados). **Falta**: demo con micrófono real
-- [ ] **S6.6** Operación — **parcial (Sesión 015)**: `scripts/stt-serve.sh` (wakelock best-effort, toma de instancia única, limpieza sin procesos residuales, `--pipeline` para demos) + `tests/run-stage6-soak.sh` (`--quick` 3 min + 30 min): quick **SOAK OK** (361/361 eventos, 3 sesiones, RSS +3.6 %, churn 6+30, 8/8 frescos, apagado limpio) y **soak de 30 min en verde**: 3601/3601 eventos, 6 sesiones, tendencia RSS −70.5 kB/min (sin fuga; máx 10.3 MB), churn 60/60 + 30 + 8/8 frescos, apagado limpio y reinicio verificados. **Falta**: la captura real del micrófono vía `stt-serve.sh`
-- [ ] **S6.7** Cierre del stage: G1–G6 parciales (ver bitácora Sesión 015); regresiones 1–5 en verde salvo stage 4 live (sin micrófono); `make test-stage6` en verde; docs sincronizadas. **Cierra con la sesión de micrófono real**
+- [x] **S6.5** Cliente de referencia (plugin de agente) — **Sesión 015**: `clients/agent-plugin/` (módulo Go `stt-client`, WS vendorizado) con reconexión con backoff (observado 265→439→875 ms→2.08 s tras `kill -9`), filtro de `final`, dedupe **por sesión** (7/7 tests); demo con motor real (sherpa kroko EN → `sttd` → plugin: parciales palabra a palabra + 6 finales; reconexión con `kill -9`: 0 duplicados). **Sesión 016** (micrófono real): demo completa — **13 `final` surfaced (entre ellos "ever tried / , ever failed no matter / try again / fail again, failure"), 0 duplicates_suppressed, 0 reconnects**, salida limpia rc=0 con `--once` tras el `eof` y resumen de una línea. Evidencia: `var/tmp/stage6/live/plugin.{ndjson,stderr}` + bitácora
+- [x] **S6.6** Operación — **Sesión 015**: `scripts/stt-serve.sh` (wakelock best-effort, toma de instancia única, limpieza sin procesos residuales, `--pipeline` para demos) + `tests/run-stage6-soak.sh` (`--quick` 3 min + 30 min): quick **SOAK OK** (361/361 eventos, 3 sesiones, RSS +3.6 %, churn 6+30, 8/8 frescos, apagado limpio) y **soak de 30 min en verde**: 3601/3601 eventos, 6 sesiones, tendencia RSS −70.5 kB/min (sin fuga; máx 10.3 MB), churn 60/60 + 30 + 8/8 frescos, apagado limpio y reinicio verificados. **Sesión 016** (micrófono real vía `stt-serve.sh`): ciclo completo — arranque con wakelock best-effort ("unavailable (skipped)", comportamiento documentado en chroot), fin de sesión real = parar la captura → `stt stream` emite `eof` → hub cierra clientes con `1000` → el servidor queda a la espera y arranca la siguiente sesión (id nuevo verificado en el log); sesión real de 241 s (VAD descartó 212.7 s de silencio, RSS 162 MB); **teardown sin procesos residuales verificado ×3 con `ps`**
+- [x] **S6.7** Cierre del stage — **Sesión 016**: G1–G6 completos (ver bitácora); regresiones 1–5 en verde (Stage 4: primer intento FAIL por **voz ambiente capturada durante la ventana TTS** — transcript con frases ajenas a la TTS —, retry en verde con **S4.2 latencia 2.432 s ≤ 3 s**; evidencia `var/tmp/stage4/stage4-run.log`); Stage 5 ALL OK (RTF ES 0.185; `var/tmp/stage5/stage5-run.log`); `make test-stage6` verde (**"ALL STAGE 6 CHECKS OK"**, `var/tmp/stage6/stage6-run.log`); docs sincronizadas (PROGRESO, README, PLAN) antes del commit
 
 ---
 
 ## Bitácora
+
+### Sesión 016 — 2026-10-24
+**Alcance**: cierre del **Stage 6** — evidencia en vivo con micrófono real
+(S6.3/S6.5/S6.6) y cierre formal (S6.7).
+
+**Contexto**: esta sesión sí corrió en el chroot del teléfono con la captura
+disponible (`termux-capture.sh --check` → `OK: source stt_mic_4713 is
+available`, PulseAudio `module-sles-source` en el puerto 4713); el bloqueo
+"sin `pactl`/`parec`" de la Sesión 015 no existió aquí.
+
+**Hechos (evidencia)**
+- **Demo en vivo (una sesión, voz humana)**: `STT_SERVER_DEBUG=1 stt-serve.sh
+  --engine sherpa` → sesión `20261024-203623` (modelo sherpa kroko EN cargado
+  en ~13 s, captura `stt_mic_4713` 16 kHz s16le mono). El usuario leyó en voz
+  alta la frase Beckett del proyecto.
+- **S6.3**: `tests/ws_probe.py compare` (2 clientes WS concurrentes) →
+  `{"identical": true, "count_a": 34, "count_b": 34, "close_a": 1000,
+  "close_b": 1000}` — mismos eventos, mismo orden, cierre limpio tras `eof`.
+  Cliente tardío (conecta ~12 s después de iniciada la sesión, `--require-eof`)
+  → 35 mensajes: `hello` con `session.id=20261024-203623` → replay de `start`
+  → partials palabra a palabra + `final` verbatim → **`eof` como último
+  mensaje**, close `1000`. Sesión real: 241 s de audio, VAD descartó 212.7 s,
+  RSS 162 MB.
+- **S6.5**: plugin de referencia conectado durante todo el run con `--once` →
+  `13 events surfaced, 0 duplicates_suppressed, 0 reconnects`, rc=0 y salida
+  limpia tras el `eof`. Finales incluyen la frase leída: "ever tried",
+  ", ever failed no matter", "try again", "fail again, failure".
+- **S6.6**: fin de sesión real = terminar la captura (`SIGTERM` al
+  `termux-capture.sh` del pipeline) → FIFO se cierra → `stt stream` emite
+  `eof` → hub cierra clientes con `1000` → el servidor queda a la espera y
+  arranca la sesión siguiente (id `20261024-204027` verificado en el log de
+  `sttd`). Teardown final sin procesos residuales (verificado con `ps` ×3:
+  sin `sttd`/`stt stream`/`termux-capture`/`parec`/PulseAudio/clientes).
+- **S6.7**: batería completa en verde: `make test` (go vet + tests + Stage 1)
+  PASS; Stage 2 PASS; Stage 3 PASS (latencia steady p95 0.5 s ≤ 800 ms);
+  Stage 4 **FAIL→retry PASS** (S4.2 latencia TTS acústica 2.432 s ≤ 3 s; el
+  fallo inicial, 9.221 s, fue **voz ambiente** capturada en la ventana de 22 s
+  — el transcript contenía frases ajenas a la TTS y alucinaciones tipo
+  "no, no, no…"; causa ambiental, no de código); Stage 5 ALL OK (RTF ES
+  0.185, fan-out tcp/unix, partials, captions); `make test-stage6` →
+  **"ALL STAGE 6 CHECKS OK"** (`var/tmp/stage6/stage6-run.log`). Nota de
+  operación: `run-stage6-tests.sh` reescribe `stage6-run.log` (su artefacto
+  propio); la evidencia por stage vive en `var/tmp/stage{1..5}/`.
+- Evidencia cruda de la demo (no versionada): `var/tmp/stage6/live/`
+  (`compare.json`, `late.json`, `plugin.ndjson`, `plugin.stderr`, `serve.log`).
+
+**Archivos tocados**: `PROGRESO.md`, `README.md`, `docs/PLAN.md`.
+**Checks**: G1 ✅ (build limpio), G2 ✅ (arriba), G3 ✅ (docs sincronizadas
+antes del commit), G4 ✅, G5 ✅ (regresiones 1–5 + stage 6 verdes), G6 ✅
+(sin residuales; temporales sólo en `var/`); S6.3/S6.5/S6.6/S6.7 ✅.
+**Decisiones nuevas**: ninguna (sin cambios de diseño ni de contrato).
+**Siguiente paso**: Stage 6 cerrado. Stage 7 sin definir (sólo si el uso lo
+pide). Pendiente de GitHub sigue congelado por decisión del usuario.
 
 ### Sesión 015 — 2026-10-24
 **Alcance**: ejecutar el **Stage 6** (S6.2 → S6.4 → S6.3 → S6.5 → S6.6) hasta

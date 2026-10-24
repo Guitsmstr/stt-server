@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado actual** | Stage 5 — ✅ cerrado (Sesión 012); **Stage 6 — 🟡 ejecutado (Sesión 015)**: servidor WS `sttd` + cliente de referencia implementados y verificados con fuentes deterministas; pendiente evidencia con micrófono real (S6.3/S6.5/S6.6 en vivo) y cierre S6.7. Ver PROGRESO.md |
+| **Estado actual** | Stages 1–5 ✅ cerrados; **Stage 6 — ✅ cerrado (Sesión 016)**: servidor WS `sttd` + cliente de referencia verificados con fuentes deterministas (Sesión 015) y demo en vivo con micrófono real (Sesión 016). Stage 7 sin definir (sólo si el uso lo pide). Ver PROGRESO.md |
 | **Última actualización** | 2026-10-23 (Sesión 013) |
 | **Fuente de progreso** | [`../PROGRESO.md`](../PROGRESO.md) |
 
