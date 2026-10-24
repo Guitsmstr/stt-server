@@ -5,14 +5,25 @@ No conoce la fuente del audio ni el modelo de transcripción: ambos se conectan
 mediante adaptadores (contratos definidos en `docs/CONTRATOS.md`).
 
 ```
-audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
+audio PCM ──→ [ stt (Go) ] ──→ NDJSON `stt-events/1`
+                 │                 ├──→ stdout (tubería, archivo, TTY)
+                 │                 ├──→ --out tcp:// | unix://   (fan-out, N clientes)
+                 │                 └──→ sttd ──ws://──→ apps y plugins   (Stage 6, planificado)
                  │
                  └── subproceso: adaptador de modelo (C++)
 ```
 
+El **núcleo es el pipeline**: audio → segmentación → modelo → eventos. Los
+consumidores (stdout, fan-out TCP/Unix y el servidor WebSocket) son **sinks
+externos**: ninguno reescribe el formato ni conoce el modelo, y un cliente
+lento nunca degrada la transcripción. Esa separación es lo que permite añadir
+red sin tocar el núcleo. Invariantes y diagrama completo:
+[`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) §1.1–§1.2; contrato del
+servidor: [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9.
+
 | | |
 |---|---|
-| **Estado** | Stage 5 — ✅ cerrado (Sesión 012): sherpa-onnx streaming ES/EN + fan-out `--out`; S5.3–S5.9 verificados. Ver [`PROGRESO.md`](PROGRESO.md). |
+| **Estado** | Stage 5 — ✅ cerrado (Sesión 012): sherpa-onnx streaming ES/EN + fan-out `--out`. **Stage 6 — planificado (Sesión 013)**: servidor WebSocket `sttd` para apps y plugins (teléfono → clientes). Ver [`PROGRESO.md`](PROGRESO.md). |
 | **Núcleo** | Go |
 | **Adaptadores de modelo** | C++ (libre: cualquier lenguaje que hable `stt-adapter/1`) |
 | **Objetivo de uso** | streaming continuo (dictado), Alpine/musl aarch64, sin escritorio |
@@ -24,9 +35,9 @@ audio PCM ──→ [ stt (Go) ] ──→ NDJSON por stdout
 3. [`docs/REGLAS.md`](docs/REGLAS.md) — reglas de trabajo entre sesiones
 4. [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) — componentes + registro de decisiones (D1, D2, ...)
 5. [`docs/CONTRATOS.md`](docs/CONTRATOS.md) — especificación de interfaces (la verdad del sistema)
-6. [`docs/OPERACION.md`](docs/OPERACION.md) — micrófono real: setup, uso y diagnóstico
+6. [`docs/OPERACION.md`](docs/OPERACION.md) — micrófono real (setup, `stt-captions`, `--out`) y **servidor remoto** §7 (Stage 6)
 7. [`docs/PREREQUISITOS.md`](docs/PREREQUISITOS.md) — toolchain, hardware, assets
-8. [`docs/GLOSARIO.md`](docs/GLOSARIO.md) — siglas y abreviaturas (STT, VAD, RTF, RSS, NDJSON, S5.8, D15, …)
+8. [`docs/GLOSARIO.md`](docs/GLOSARIO.md) — siglas y abreviaturas (STT, VAD, RTF, RSS, NDJSON, S5.8, D15, `stt-remote/1`, …)
 
 ## 🗂️ Estructura
 

@@ -63,15 +63,28 @@ aclara el vocabulario.
 | **Unix socket** | Socket de dominio Unix: comunicación local por una ruta del sistema de ficheros (`unix:///tmp/stt.sock`). |
 | **loopback** | Interfaz de red local (`127.0.0.1`): el tráfico no sale del dispositivo. |
 | **fan-out** | Patrón de difusión: un productor, N consumidores. Aquí, los mismos eventos NDJSON a varios clientes. |
+| **WebSocket / WS** | Protocolo de conexión bidireccional persistente sobre TCP (RFC 6455). Es el transporte de `stt-remote/1` (Stage 6). |
+| **RFC 6455** | Especificación de WebSocket: *upgrade* HTTP → tramas de texto/binario + control (ping/pong/close). |
+| **upgrade** | Paso del handshake HTTP a WebSocket. `sttd` lo rechaza con `401`/`503` **antes** de aceptarlo. |
+| **stt-remote/1** | Versión 1 del contrato de entrega remota (`sttd`): WS, token Bearer, `hello` + eventos `stt-events/1` tal cual (CONTRATOS §9). |
+| **sttd** | *stt daemon*: binario del servidor remoto (Stage 6). Supervisa `stt stream` y publica sus eventos por WS. |
+| **hub** | Concentrador del servidor: recibe una línea de eventos y la reparte a las colas de los clientes conectados. |
+| **Bearer token** | Token estático en la cabecera `Authorization: Bearer <token>`; en v1 es la única autenticación del servidor. |
+| **attach perezoso** | El cliente puede conectar sin sesión activa (`hello` con `session:null`) y esperar el siguiente `start`. |
+| **replay** | Reenvío de la cabecera `start` a quien conecta con la sesión ya en curso (no hay historial de texto en v1). |
+| **backpressure** | Control de consumidores lentos: cola acotada por cliente; al desbordarse se desconecta **solo** a ese cliente (`1013`). |
+| **healthz** | Endpoint HTTP plano `GET /healthz` del servidor: estado y sesión activa, sin autenticación. |
+| **TLS** | *Transport Layer Security*: cifrado de red. **No** está en v1; se usa `adb forward`, túnel SSH o un proxy TLS delante (D18). |
 | **stt-adapter/1** | Versión 1 del protocolo núcleo ↔ adaptador de modelo (stdin/stdout). |
 | **stt-events/1** | Versión 1 del formato de eventos que emite el núcleo. |
 | **ADR** | *Architecture Decision Record*: registro de decisiones de arquitectura. La tabla D1–D15 de `ARQUITECTURA.md` es un “ADR-lite”. |
-| **D1–D15** | Decisiones de diseño numeradas (p. ej. D13 = salida remota, D15 = implementación del fan-out). |
+| **D1–D19** | Decisiones de diseño numeradas (p. ej. D13 = salida remota, D15 = implementación del fan-out, D16–D19 = servidor WS del Stage 6). |
 | **R1–R11** | Reglas de trabajo del proyecto (`docs/REGLAS.md`). |
 | **G1–G6** | Checks generales de cada stage: build, evidencia, docs, progreso, regresiones, limpieza. |
 | **S0.1 … S5.9** | Checks específicos: `S<stage>.<número>` (p. ej. S3.4 = check 4 del Stage 3; S5.8 = check 8 del Stage 5). |
+| **S6.1–S6.7** | Checks del Stage 6 (servidor remoto `sttd`). |
 | **O1 / O2** | Observaciones abiertas registradas en `PROGRESO.md` (no son checks). |
-| **Stage 0–5** | Fases del plan: fundación, contratos/harness, Moonshine, streaming, micrófono, expansión. |
+| **Stage 0–5** | Fases del plan: fundación, contratos/harness, Moonshine, streaming, micrófono, expansión. Stage 6 = servidor remoto WS (planificado). |
 
 ---
 
@@ -151,6 +164,8 @@ aclara el vocabulario.
 | **--vad=false** | Desactiva VAD y usa framing fijo. |
 | **--partials** | Reenvía eventos `partial` (texto interim) si el adaptador los declara. |
 | **--out** | Activa el listener de fan-out TCP/Unix. |
+| **--listen** | (Stage 6) Dirección del servidor WS; por defecto `127.0.0.1:4719`. |
+| **--token / --print-token** | (Stage 6) Token Bearer del servidor; `--print-token` muestra el actual sin arrancar. |
 | **--adapter / --model** | Comando del adaptador / ruta del modelo. |
 | **--config** | Fichero TOML alternativo. |
 

@@ -301,6 +301,122 @@ pronuncia la frase de referencia por el altavoz (loopback acústico). Evento
 evento `stt-events/1`. La demo de voz humana de S4.3 se cerró en la Sesión 007
 (3 finales, latencia máx 1.269 s; ver `PROGRESO.md`).
 
+## 9. `stt-remote/1` — servicio remoto (`sttd`, Stage 6)
+
+Contrato de la **entrega** del texto a clientes de red (apps, plugins de
+agente, navegadores). El servidor `sttd` no interpreta ni reescribe la
+salida: reenvía `stt-events/1` **tal cual**. Especificado en la Sesión 013;
+la implementación es S6.2–S6.5.
+
+```
+micrófono → stt stream (núcleo, sin cambios) → stdout NDJSON
+                                                    ↓ lo lee sttd
+                                   WS /v1/feed  ← hub + token + replay
+                                                    ↓
+                                     clientes receive-only (N)
+```
+
+### 9.1 Transporte y URL
+
+- **WebSocket** (RFC 6455) sobre TCP. Puerto por defecto **4719** (no usa el
+  4713 de PulseAudio ni el 4714 de los ejemplos de fan-out).
+- URL: `ws://<host>:<puerto>/v1/feed`. Sólo hay un endpoint en v1;
+  `GET /healthz` es HTTP plano (no WS) y devuelve `200` con
+  `{"status":"ok","protocol":"stt-remote/1","session":true}`
+  (`session` indica si hay pipeline activo).
+- Bind por defecto **`127.0.0.1:4719`**. Escuchar en LAN exige pedirlo
+  explícitamente (`--listen 0.0.0.0:4719` o `[server] listen`). No hay TLS en
+  v1: para red no confiable, túnel SSH/adb o proxy TLS delante (D18).
+
+### 9.2 Autenticación
+
+- Token estático de 64 hex (32 bytes aleatorios) en `var/etc/stt-token`
+  (permisos `0600`, generado en el primer arranque) o en `[server] token` /
+  `--token`.
+- El cliente lo envía en la cabecera `Authorization: Bearer <token>`.
+  Comparación en tiempo constante.
+- Fallback para clientes que no pueden fijar cabeceras (p. ej. `WebSocket`
+  de navegador): `?token=<token>`. El servidor **no** registra la query.
+- Sin token o con token erróneo: el upgrade **no se completa**; HTTP `401`
+  antes del handshake WS. El servidor no filtra si el token existe.
+
+### 9.3 Handshake y flujo de mensajes
+
+Tras el upgrade, el servidor envía, en este orden:
+
+1. `hello` (mensaje `stt-remote/1`):
+
+```json
+{"type":"hello","protocol":"stt-remote/1","server":"sttd/0.1",
+ "session":{"id":"20261023-1","engine":"sherpa-zipformer-en-kroko",
+            "partials":true,"started_at":"2026-10-23T19:31:02Z",
+            "audio":{"rate":16000,"channels":1,"format":"s16le"}}}
+```
+
+   Si no hay pipeline activo: `"session":null` (**attach perezoso**). El
+   cliente espera y recibirá `start` cuando arranque la captura.
+2. Replay de `start` (`stt-events/1`) si la sesión ya estaba en curso.
+3. Los eventos vivos **en el mismo orden que stdout**, uno por mensaje WS de
+   texto, sin envoltorio ni renombrado:
+
+```json
+{"type":"final","text":"ever tried ever failed","t0":12.4,"t1":14.4,"model":"sherpa-zipformer-en-kroko","rtf":0.15}
+{"type":"partial","text":"no matter","t0":14.5,"t1":15.2}
+{"type":"eof","frames":152,"audio_s":304.0,"rss_kb":257000}
+```
+
+Reglas:
+
+- **Un evento `stt-events/1` por mensaje WS de texto.** No se agrupan ni se
+  alteran campos; se heredan todas las reglas de §3 (incluida “ignorar campos
+  desconocidos” y la autoridad de `t0`/`t1` del núcleo).
+- Tras `eof` no llegan más eventos; el servidor cierra con `1000`.
+- **v1 no tiene historial**: un cliente que conecta a mitad de sesión recibe
+  `hello` + `start` y sólo el texto posterior. `[server] replay_finals` queda
+  reservado (v2) para reenviar los últimos N `final`.
+- Clientes **receive-only**: los mensajes de datos del cliente se ignoran en
+  v1 (se registran a nivel debug). Quedan reservados para control futuro
+  (prefijo `stt-remote/`); ningún cliente debe depender de ellos.
+- Keepalive: **ping WS** del servidor cada 20 s; el cliente responde pong. Sin
+  pong en 60 s → el servidor cierra (`1013`). No hay heartbeat de aplicación.
+
+### 9.4 Backpressure y límites
+
+| Situación | Comportamiento |
+|---|---|
+| Cliente lento (cola de 256 eventos llena) | Se cierra **sólo** a ese cliente con `1013` (Try Again Later); el pipeline y los demás clientes siguen |
+| Cliente desconecta | Se libera su cola; no afecta al núcleo ni a otros clientes |
+| Más de `[server] max_clients` (8) | El upgrade se rechaza con HTTP `503` |
+| Pipeline activo termina | `eof` a todos, drenaje acotado (2 s), cierre `1000` |
+| Servidor se apaga | Cierre `1001` (going away) |
+| Sin token / token erróneo | HTTP `401` (antes del upgrade) |
+| Sesión no activa | Conexión aceptada con `session:null` (attach perezoso) |
+
+### 9.5 Ciclo de vida de la sesión
+
+El ciclo lo controla **el teléfono** (script local o `stt-serve.sh`), nunca el
+cliente: `sttd` arranca/supervisa `stt stream` + captura de micrófono y, al
+terminar, emite `eof` y queda a la espera de la siguiente sesión. Rotura del
+núcleo o del adaptador → `{"type":"error",...,"fatal":true}` a los clientes
+y reconexión del pipeline según la política del runner (máx 3 en 60 s).
+
+### 9.6 Ejemplo de consumo (diseño; verificado en S6.3)
+
+```sh
+# teléfono (en el chroot)
+./scripts/stt-serve.sh --engine sherpa          # captura + sttd en :4719
+
+# Mac / cualquier cliente de la LAN
+websocat -H 'Authorization: Bearer <token>' ws://192.0.2.1:4719/v1/feed
+# → {"type":"hello",...}
+# → {"type":"start",...}
+# → {"type":"partial","text":"ever tried"...}
+# → {"type":"final","text":"ever tried ever failed",...}
+```
+
+Sin pasar el token: `401`. Con `adb forward tcp:4719 tcp:4719` el cliente
+puede usar `ws://127.0.0.1:4719` sin exponer nada en la LAN.
+
 ---
 
 *Regla R5: cambios incompatibles ⇒ `stt-adapter/2` / `stt-events/2` + entrada

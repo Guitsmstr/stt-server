@@ -7,29 +7,71 @@ Versión del documento: 1 (2026-10-22). Los contratos detallados están en
 
 ## 1. Vista general
 
+El proyecto es **un pipeline con tres fronteras de contrato** (audio,
+adaptador de modelo, eventos) y **tres sinks de salida**. Todo lo que no cruza
+esas fronteras es reemplazable: fuentes de audio y consumidores de texto.
+
 ```
-                       ┌──────────────────────────────────────────────┐
- [adaptadores de       │  NÚCLEO stt (Go, binario único)              │
-  entrada externos]    │                                              │
-  · termux-capture ──→ │  ingest → normalize → segment (VAD) ──┐      │
-  · sox/ffmpeg pipe    │                                      ▼      │
-  · archivo .wav       │                               ┌────────────┐ │    stdout
-                       │                               │  runner    │ │──→ NDJSON
-                       │                               │ (supervisa │ │    (stt-events/1)
-                       │                               │  adapters) │ │
-                       │                               └─────┬──────┘ │
-                       └─────────────────────────────────────┼────────┘
-                                                             │ stdin: PCM frames
-                                                             │ stdout: NDJSON
-                                                             ▼
-                       ┌──────────────────────────────────────────────┐
-                       │  ADAPTADOR DE MODELO (subproceso, C++)       │
-                       │  · stt-adapter-moonshine (ONNX Runtime)      │
-                       │  · stt-adapter-sherpa    (sherpa-onnx)       │
-                       │  · stt-adapter-whisper   (whisper.cpp) ←fut. │
-                       │  · stt-adapter-echo      (fake, para tests)  │
-                       └──────────────────────────────────────────────┘
+ [1] FUENTES DE AUDIO — adaptadores de entrada (CONTRATOS §1 y §4)
+   ┌───────────────────────┐ ┌──────────────────┐ ┌────────────────────────┐
+   │ micrófono del teléfono│ │ archivo / pipe   │ │ audio del cliente      │
+   │ Termux + PulseAudio   │ │ sox, ffmpeg, wav │ │ por red (Stage 7)      │
+   └──────────┬────────────┘ └────────┬─────────┘ └───────────┬────────────┘
+              └──────── PCM s16le · 16 kHz · mono ───────────┘
+                                  │ stdin
+                                  ▼
+ [2] NÚCLEO stt (Go, `stt stream`) — no conoce fuente ni consumidor
+   ingest → normalize → segment (VAD) → runner ↔ adaptador de modelo
+                                  │ stdout: NDJSON `stt-events/1`
+                                  ▼
+ [3] SINKS (fuera del núcleo; ninguno reescribe el formato)
+   ┌───────────────┐ ┌──────────────────────────┐ ┌─────────────────────────┐
+   │ stdout        │ │ --out tcp:// | unix://   │ │ sttd (Stage 6)          │
+   │ tubería,      │ │ fan-out TCP/Unix        │ │ supervisor + hub + auth │
+   │ archivo, TTY  │ │ receive-only, N clientes │ │ WebSocket stt-remote/1  │
+   └───────────────┘ └──────────────────────────┘ └───────────┬─────────────┘
+                                                              │ ws://
+                                                              ▼
+                                              ┌──────────────────────────────┐
+                                              │ plugins de agente, apps,     │
+                                              │ navegadores (N clientes)     │
+                                              └──────────────────────────────┘
 ```
+
+### 1.1 Integridad del pipeline (invariantes)
+
+Estas invariantes son la razón por la que el proyecto puede crecer sin
+romperse; cualquier cambio que las viole exige decisión registrada (R4) y
+versión nueva de contrato (R5).
+
+| ID | Invariante | Garantizado por |
+|---|---|---|
+| **I1** | El audio entra siempre como PCM s16le/16k/mono (stdin o WAV en `once`); ninguna fuente nueva cambia el contrato | CONTRATOS §1, §4 |
+| **I2** | El núcleo no conoce la fuente del audio ni el consumidor del texto | diseño (§2) |
+| **I3** | El núcleo no conoce el transporte de salida: stdout, fan-out y WebSocket son **sinks externos** | D13, D16 |
+| **I4** | El modelo vive en un subproceso supervisado: su crash no mata al núcleo | D2, §3 |
+| **I5** | Todo texto sale como `stt-events/1`; ningún sink lo reescribe, agrupa ni reordena | CONTRATOS §3 |
+| **I6** | `t0`/`t1` los sella el núcleo (autoridad de la línea de tiempo del stream) | CONTRATOS §3 |
+| **I7** | Un consumidor lento nunca degrada el pipeline (cola acotada, desconexión aislada) | D15, D17 |
+
+Consecuencia: añadir el servidor (Stage 6) **no toca** núcleo, adaptadores ni
+contratos existentes; las suites de stages 1–5 siguen midiendo lo mismo.
+
+### 1.2 Qué añade el servidor y qué no
+
+| Capa | Hasta Stage 5 | Con Stage 6 (`sttd`) |
+|---|---|---|
+| Procesos | `parec` + `stt stream` | `parec` + `stt stream` (hijo de `sttd`) + `sttd` |
+| Salidas | stdout, `--out` TCP/Unix | + WebSocket `ws://…/v1/feed` |
+| Autenticación | ninguna (loopback) | token Bearer estático (D17) |
+| Consumidores remotos | TCP/Unix receive-only | WS receive-only (N, replay de `start`, attach perezoso) |
+| Núcleo, adaptadores, contratos | — | **intactos** |
+
+`sttd` **no** es una capa del núcleo: es un supervisor que arranca `stt stream`
+como hijo, lee su stdout por tubería y publica esos mismos eventos por
+WebSocket. El fan-out `--out` sigue existiendo para el caso local/cableado
+(`adb forward`, `nc`, `socat`); el servidor no lo necesita ni lo sustituye.
+
 
 ## 2. Responsabilidades
 
@@ -83,6 +125,29 @@ micrófono → OpenSL ES (module-sles-source de PulseAudio)
 - El hotfolder de CONTRATOS §4 no se usa en v1: se prefirió el pipe continuo
   (sin cortes por chunk ni decodificación de contenedores).
 - Operación, permisos y diagnóstico: [`OPERACION.md`](OPERACION.md).
+
+### 3.2 Servidor remoto `sttd` (Stage 6, decisión D16)
+
+```
+parec (micrófono) ──pipe──→ stt stream ──stdout NDJSON──→ sttd ──ws://──→ N clientes
+                                  ▲                         │
+                                  └────── sttd lo supervisa ┘
+```
+
+- **Un binario aparte** (`core/cmd/sttd`), no una capa del núcleo (I3).
+  Arranca y supervisa la captura + `stt stream`, lee su **stdout** línea a
+  línea y publica cada evento en el hub WebSocket sin transformarlo (I5).
+- **Una sesión activa a la vez**: `idle → running → eof → idle`. Los clientes
+  pueden conectar en `idle` (*attach perezoso*, `session:null`) y esperar el
+  siguiente `start`. La RAM del dispositivo (un adaptador activo = 160–260 MB)
+  no permite más sin un stage propio.
+- **No toca PCM ni `stt-adapter/1`**: sólo consume `stt-events/1`. Si el
+  núcleo o el adaptador mueren, `sttd` reinicia el pipeline con la misma
+  política del runner y notifica a los clientes; si es fatal, cierra con
+  `1011`.
+- **Aislamiento**: cola acotada por cliente, `max_clients`, `1013` para
+  clientes lentos (igual que el fan-out de D15, ahora sobre WS).
+- Detalle del protocolo: CONTRATOS §9. Operación: OPERACION §7.
 
 ## 4. Pipeline interno del núcleo
 
@@ -193,6 +258,11 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | **D13** | 2026-10-22 | **Salida remota**: `stt stream --out tcp://host:puerto` o `unix://ruta` transporta los mismos eventos `stt-events/1` con fan-out a N clientes; stdout sigue siendo el modo base | `tee`/proceso consumidor externo (parseo duplicado, frágil con pipes); salida a archivo (un solo consumidor); contrato nuevo `stt-events/2` (innecesario: el formato no cambia) | extiende **D3** de forma compatible (mismo NDJSON, transporte nuevo); la desconexión de un cliente no afecta al pipeline ni a los demás clientes; sobrecoste de latencia objetivo ≤ 10 ms; verificado en S5.8 (implementación en D15) |
 | **D14** | 2026-10-22 | Motor del Stage 5: **sherpa-onnx streaming zipformer** (Kroko 2025 float, es/en; el int8 inicial se descartó en la Sesión 009), compilado desde fuente contra la `libonnxruntime` del sistema; **sustituye a whisper.cpp (D12)** como elección del Stage 5 | whisper.cpp (más preciso pero por segmentos: sin parciales, RTF 0.4–1.5 esperado en este SoC, latencia 1–3 s); mantener solo Moonshine (inglés); decodificador streaming propio sobre ORT (fbank + transducer: demasiado alcance) | streaming nativo con **parciales palabra a palabra** (capability `partial`, cableada desde S3.5); RTF ≤ 0.35 y RSS < 300 MB; español sin cambios de núcleo (`--adapter`); moonshine sigue default; whisper.cpp queda como opción futura de máxima precisión. Decisión del usuario (Sesión 007) |
 | **D15** | 2026-10-23 | Implementación del **fan-out** de D13: listener TCP/Unix abierto antes de `start`, replay de `start` a clientes tardíos, cola acotada por cliente (256 líneas; cliente lento se desconecta solo), drenaje acotado del `eof` al cerrar y socket Unix borrado al salir | `tee` (no soporta varios consumidores remotos ni desconexión aislada); broadcast bloqueante (un cliente lento pararía el pipeline); sin replay (los clientes tardíos pierden la cabecera) | S5.8 verificado con 2 clientes + cliente tardío: eventos idénticos, desconexión aislada, p95 de sobrecoste 0.2–0.8 ms (máximo con jitter de scheduler ≤ 23 ms); `STT_FANOUT_DEBUG=1` deja trazas en stderr |
+
+| **D16** | 2026-10-23 | **`sttd` como binario separado** que supervisa `stt stream` y republica su stdout por WebSocket; el núcleo no gana código de red | WebSocket dentro del núcleo (viola I3, mezcla transportes, arriesga regresiones en un pipeline ya validado); relay externo sobre `--out` (un salto y un proceso más para el mismo resultado) | Núcleo, adaptadores y contratos intactos; la dependencia WS queda aislada en `sttd`; `sttd` asume la supervisión del pipeline; las suites de stages 1–5 siguen midiendo lo mismo |
+| **D17** | 2026-10-23 | **`stt-remote/1` sobre WebSocket** con token Bearer estático, clientes receive-only, `hello` → replay de `start` → eventos → `eof`, attach perezoso y `1013` para clientes lentos | REST con polling (latencia inaceptable para dictado); SSE (válido pero unidireccional y sin binario; el usuario eligió WS); gRPC (codegen y peso innecesarios en musl/estático) | Contrato nuevo en CONTRATOS §9; los navegadores necesitan `?token=`; v1 sin historial (`replay_finals` reservado); deja la puerta abierta a control futuro por mensajes `stt-remote/*` |
+| **D18** | 2026-10-23 | **Bind por defecto `127.0.0.1`**, escucha en LAN sólo con `--listen`/`[server] listen` explícito; **sin TLS en v1** (túnel SSH/`adb forward` o proxy delante) | TLS con certificado autofirmado (gestión de certificados y plugins que lo rechazan); exponer `0.0.0.0` por defecto (un token en claro por LAN es el escenario peor); mDNS (se evalúa en S6.6) | Para LAN hay que optar conscientemente y usar token; el camino seguro por defecto sigue siendo loopback (`adb forward`) o SSH; documentado en OPERACION §7 |
+| **D19** | 2026-10-23 | **Una sola dependencia de WebSocket, vendorizada**: `github.com/coder/websocket` (ISC, sin dependencias transitivas, `go mod vendor`) para el servidor y el cliente de referencia | RFC 6455 a mano (~300 líneas; cero dependencias, pero fragmentation/close-handshake mal implementados son un fallo de seguridad y de interop); `gorilla/websocket` (BSD-2, más API de la necesaria) | Builds siguen pudiendo ser offline (`-mod=vendor`); hay que anotar la licencia de terceros en README al publicar; si la dependencia desaparece, el contrato §9 permite cambiar de librería sin tocar clientes |
 
 ---
 

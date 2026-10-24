@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 5 — ✅ cerrado (Sesión 012)** |
-| **Última actualización** | 2026-10-23 (Sesión 013) |
-| **Siguiente paso** | No hay stages abiertos. Sesión 013: auditoría de publicación en GitHub (repo limpio; faltan decisiones: LICENSE, identidad git) + análisis de acceso remoto Mac/LAN (vía sin elegir). Antes de un release: `make test-soak` (30 min). Líneas futuras posibles: Stage 6 (sesiones concurrentes / servicio REST), whisper.cpp o empaquetado — ninguna definida aún. |
+| **Stage actual** | **Stage 6 — planificado (aprobado en Sesión 014)**: servidor WebSocket `sttd` |
+| **Última actualización** | 2026-10-23 (Sesión 014) |
+| **Siguiente paso** | **S6.2**: `core/cmd/sttd` + `core/internal/server` (config `[server]` con parser estricto, token `0600`, `/healthz`, WS `/v1/feed` con `hello`→`start`→eventos→`eof`, attach perezoso) y sus tests Go. Orden del stage: S6.2 → S6.4 (seguridad antes de exponer red) → S6.3 → S6.5 → S6.6 → S6.7. Antes de un release: `make test-soak`. |
 
 ## Estado de stages
 
@@ -20,6 +20,8 @@
 | 3 | Streaming continuo | ✅ cerrado (Sesión 005) |
 | 4 | Entrada de audio real (Android/Termux) | ✅ cerrado (Sesión 007) |
 | 5 | Expansión (sherpa-onnx + salida remota) | ✅ cerrado (Sesión 012): S5.1–S5.9 ✅ |
+| 6 | Servidor remoto (`sttd` + WS `stt-remote/1`) | 🟡 planificado (Sesión 014): S6.1 ✅, S6.2–S6.7 pendientes |
+| 7 | API de transcripción (clientes envían audio) | ⬜ sin definir — sólo si el uso lo pide |
 
 ---
 
@@ -150,9 +152,86 @@ Generales (Sesión 012):
 - [x] **G5** Sin regresiones — stages 1, 2, 3 y 4 en verde (Stage 4 live incluido)
 - [x] **G6** Limpieza — evidencia en `var/tmp/stage5`; sin procesos adaptadores/servidores residuales; `__pycache__` ignorado
 
+### Stage 6 — Servidor remoto (`sttd` + WebSocket `stt-remote/1`)
+
+Estado: **planificado (Sesión 014)**. Alcance aprobado por el usuario; detalle
+en [`docs/PLAN.md`](docs/PLAN.md) §Stage 6 y contrato en
+[`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9. Caso de uso: **teléfono →
+clientes** (plugins de agente), receive-only.
+
+Específicos:
+- [x] **S6.1** Alcance + contrato `stt-remote/1` escritos y aprobados — Sesión 014: PLAN §Stage 6 (S6.1–S6.7, estimación y orden), CONTRATOS §9, ARQUITECTURA D16–D19 (+§1.1 invariantes I1–I7), OPERACION §7, GLOSARIO, README. Aprobación explícita del usuario (“lets go with the plan”)
+- [ ] **S6.2** `sttd` base: `[server]` en config (parser estricto + `config_test.go`), token `var/etc/stt-token` `0600` autogenerado + `--print-token`, `GET /healthz`, WS `/v1/feed` con `hello`→`start`→eventos→`eof`, attach perezoso (`session:null`); tests Go de auth 401, orden, replay de `start` y N clientes
+- [ ] **S6.3** End-to-end con micrófono real: 2 clientes WS reciben los mismos eventos y en el mismo orden que stdout; parciales visibles con sherpa; cliente tardío recibe replay de `start`; sobrecoste p95 ≤ 20 ms (`tests/ws_probe.py`)
+- [ ] **S6.4** Seguridad y aislamiento: sin token / token erróneo → `401` antes del upgrade; comparación en tiempo constante; bind por defecto `127.0.0.1` y LAN opt-in; cliente lento aislado (`1013`); `max_clients` → `503`
+- [ ] **S6.5** Cliente de referencia (plugin de agente) en `clients/agent-plugin/`: reconexión con backoff, filtro de `final`, sin duplicados; demo en vivo registrada
+- [ ] **S6.6** Operación: `scripts/stt-serve.sh` (captura + `sttd` + wakelock + limpieza), apagado limpio y reinicio; soak de 30 min con cliente conectado (RSS estable, sin fugas de conexiones)
+- [ ] **S6.7** Cierre del stage: G1–G6, regresiones stages 1–5, `make test-stage6` en verde, docs sincronizadas
+
 ---
 
 ## Bitácora
+
+### Sesión 014 — 2026-10-23
+**Alcance**: definir y aprobar el **Stage 6** (servidor remoto para apps y
+plugins) con el usuario, escribir el contrato `stt-remote/1` y las decisiones
+D16–D19. **Sin código**: es la fase de planificación de R7 (planificar antes de
+implementar); la implementación empieza en S6.2.
+
+**Decisiones del usuario**
+- Caso de uso prioritario **F2**: el teléfono captura y **entrega**; los
+  clientes (plugins de agente) sólo escuchan. F1 (clientes que envían audio)
+  queda para un Stage 7 sin definir.
+- Transporte **WebSocket**; autenticación con **token estático**; sin control
+  remoto ni feedback del cliente en v1.
+
+**Escrito**
+- `docs/PLAN.md`: Stage 6 (objetivo, entregables, alcance/exclusiones, tabla
+  S6.1–S6.7, estimación 5–7 sesiones y orden de ejecución) + Stage 7 esbozado;
+  riesgos nuevos (token en LAN, dependencia WS offline/musl, doze de Android,
+  batería).
+- `docs/CONTRATOS.md` §9 `stt-remote/1`: transporte y URL (`ws://…:4719/v1/feed`),
+  `GET /healthz`, auth Bearer (con fallback `?token=`), `hello` → replay de
+  `start` → eventos **verbatim** `stt-events/1` → `eof`, attach perezoso
+  (`session:null`), keepalive ping/pong, tabla de backpressure/límites y
+  códigos de cierre (1000/1001/1011/1013), ciclo de vida y ejemplo de consumo.
+- `docs/ARQUITECTURA.md`: §1 redibujado como **pipeline con 3 fronteras y 3
+  sinks** + §1.1 invariantes I1–I7 + §1.2 “qué añade el servidor y qué no”;
+  §3.2 modelo de procesos de `sttd`; D16 (binario separado), D17 (WS + token,
+  receive-only), D18 (bind loopback por defecto, sin TLS en v1), D19 (una
+  dependencia WS vendorizada: `github.com/coder/websocket`).
+- `docs/OPERACION.md` §7: puesta en marcha, conexión desde el Mac (adb forward
+  → túnel SSH → LAN directa), comportamiento esperado, diagnóstico, seguridad.
+  §6 enlaza con §7.
+- `docs/GLOSARIO.md`: WebSocket/RFC 6455/upgrade/`stt-remote/1`/`sttd`/hub/
+  Bearer/attach perezoso/replay/backpressure/`healthz`/TLS y flags `--listen`,
+  `--token`, `--print-token`.
+- `README.md`: diagrama del pipeline con los tres sinks (servidor marcado como
+  planificado) + párrafo de separación núcleo/sinks para lectores de GitHub.
+
+**Por qué así (resumen)**
+- `sttd` es un **binario aparte** que supervisa `stt stream` y lee su stdout:
+  el núcleo no gana HTTP (invariante I3) y las suites de stages 1–5 siguen
+  midiendo lo mismo. Se descartó meter el WS dentro del núcleo y se descartó
+  un relay sobre `--out` (un salto y un proceso más para lo mismo).
+- Una **sesión activa a la vez** (attach perezoso para los clientes): la RAM
+  del dispositivo no permite un pool; la concurrencia queda para un stage
+  futuro junto con F1.
+- Bind por defecto en loopback: el camino “seguro” (`adb forward`, túnel SSH)
+  no expone nada, y la LAN es una decisión explícita del operador.
+
+**Evidencia (S6.1)**
+- `git diff --stat` de esta sesión: PLAN, CONTRATOS, ARQUITECTURA, OPERACION,
+  GLOSARIO, README y PROGRESO (7 documentos; 0 archivos de código).
+- Aprobación del usuario: “lets go with the plan” (Sesión 014), con las cinco
+  respuestas de alcance registradas arriba.
+
+**Siguiente paso**: **S6.2** — `core/cmd/sttd` + `core/internal/server` con
+`[server]` en el config (el parser es estricto: sección y claves nuevas +
+`config_test.go` en el mismo commit), token `var/etc/stt-token` `0600`
+(autogenerado, `--print-token`), `GET /healthz` y WS `/v1/feed` con
+`hello`→`start`→eventos→`eof`, attach perezoso y tests Go (auth 401, orden,
+replay, N clientes). Después S6.4 (seguridad) antes de exponer nada a la LAN.
 
 ### Sesión 013 — 2026-10-23
 **Alcance**: preparación para publicación en GitHub (auditoría de seguridad e

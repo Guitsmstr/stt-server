@@ -218,4 +218,79 @@ regresiones completas de stages 1–4 se pueden encadenar con
   altavoz y el ruido ambiente del teléfono.
 - El fan-out `--out` no tiene autenticación ni cifrado y los clientes son
   receive-only: escúchalo en loopback (`127.0.0.1`) o detrás de un túnel. No
-  expongas el puerto a una red no confiable.
+  expongas el puerto a una red no confiable. (El servidor del Stage 6 —§7—
+  añade token y bind a loopback por defecto; el fan-out se mantiene igual.)
+
+## 7. Servidor remoto `sttd` (Stage 6 — planificado)
+
+> **Estado**: alcance, contrato `stt-remote/1` y decisiones D16–D19 aprobados
+> en la Sesión 013. La implementación son los checks S6.2–S6.6; hasta que
+> estén en verde, **los comandos de esta sección no existen**.
+
+Objetivo: que un **plugin de agente** (u otra app) en el Mac o en la LAN
+reciba en vivo el texto del micrófono del teléfono. El teléfono escucha y
+entrega; el cliente **solo escucha** (no envía audio ni comandos).
+
+### 7.1 Puesta en marcha
+
+```sh
+# en el chroot del teléfono (root): captura + núcleo + servidor
+./scripts/stt-serve.sh --engine sherpa
+
+# bind por defecto 127.0.0.1:4719 (nada expuesto a la red)
+./var/bin/sttd --print-token          # ver el token actual
+./var/bin/sttd --listen 0.0.0.0:4719  # exponer en LAN (exige token)
+```
+
+El script mantiene un **wakelock** de Termux: con la pantalla apagada Android
+suspende la captura si no lo hay.
+
+### 7.2 Conectar desde el Mac (de más a menos seguro)
+
+```sh
+# 1. por USB, sin exponer nada: reenvío de puerto de adb
+adb forward tcp:4719 tcp:4719
+websocat -H "Authorization: Bearer $(cat token)" ws://127.0.0.1:4719/v1/feed
+
+# 2. por LAN con túnel SSH (auth y cifrado de SSH; nada en claro)
+ssh -N -L 4719:127.0.0.1:4719 phone
+websocat -H "Authorization: Bearer <token>" ws://127.0.0.1:4719/v1/feed
+
+# 3. directo en LAN (sólo red de confianza)
+websocat -H "Authorization: Bearer <token>" ws://192.0.2.1:4719/v1/feed
+```
+
+Desde un plugin en Python/JS, el flujo es siempre el mismo: conectar con la
+cabecera `Authorization`, leer mensajes de texto y quedarse con los
+`{"type":"final"}`. CONTRATOS §9 tiene el ejemplo completo y las reglas.
+
+### 7.3 Comportamiento esperado
+
+- Si no hay sesión activa, la conexión se acepta con `hello` y `"session":null`:
+  el plugin espera y recibe `start` cuando empiezas a hablar (attach perezoso).
+- Cada sesión acaba con `eof`; el servidor queda listo para la siguiente.
+- **No hay historial**: al reconectar se recibe `start` y sólo el texto
+  posterior. El plugin no debe asumir que recupera lo perdido.
+- Un cliente lento se desconecta solo a él (`1013`); el micrófono y los demás
+  clientes siguen.
+
+### 7.4 Diagnóstico
+
+| Síntoma | Causa / acción |
+|---|---|
+| HTTP `401` | Token ausente o incorrecto; `sttd --print-token`. |
+| HTTP `503` | `max_clients` alcanzado (8 por defecto). |
+| Conecta pero nunca llega texto | `hello` con `session:null`: no hay sesión; comprueba la captura (§4) o el permiso de micrófono. |
+| Cortes periódicos | Cliente lento (`1013`) o captura suspendida: revisa el wakelock y el log de `sttd`. |
+| No conecta desde la LAN | Bind en loopback (por defecto) → usa `--listen`; o firewall/router. |
+| `healthz` responde pero `/v1/feed` no | Falta el token o se envía como query en un cliente que no lo soporta. |
+
+### 7.5 Seguridad
+
+- El token vive en `var/etc/stt-token` (`0600`, generado al azar). Rotarlo =
+  borrar el fichero y reiniciar el servidor.
+- v1 **no tiene TLS**: por LAN, la cabecera va en claro. Usa `adb forward` o
+  túnel SSH (opciones 1 y 2 de §7.2) o un proxy TLS delante.
+- El servidor no registra la query del token ni el contenido del texto.
+- Batería: una sesión de servidor mantiene el micrófono y el modelo activos
+  (≈160–260 MB de RSS y CPU continua); no lo dejes corriendo sin necesidad.
