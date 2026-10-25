@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
-| **Última actualización** | 2026-10-25 (Sesión 020) |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 022: corrector + Laya probado **en el server** (`sttd` + WS). Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
+| **Última actualización** | 2026-10-25 (Sesión 022) |
 | **Siguiente paso** | Dos vías abiertas y medidas: (1) **generación de candidatos similares** (vecinos fonéticos/ediciones del ASR + diccionario del usuario, V4) para el modo ya validado de `stt-correct.py` (léxico + contexto previo: 100 % precisión con gate p ≥ 0.7 — MODELOS §6.4.1); (2) **fine-tune** de laya-multilingual para la clase de confusos ES (hoy 15–21 % — §6.4/§7.6). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
@@ -172,6 +172,44 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 022 — 2026-10-25
+**Alcance**: pregunta del usuario — ¿es posible probarlo **en el server** con
+esta config de Laya y la frase anterior? Sí; probado end-to-end sobre `sttd`
+(el servidor WS real, `stt-remote/1`).
+
+**Hechos (evidencia)**
+- **Integración sin tocar contratos**: el corrector va como filtro dentro del
+  **comando de sesión** (`stt-serve.sh --pipeline 'CMD_STT | stt-correct.py
+  --ndjson …'`, D20) — los `start`/`partial`/`eof` pasan **verbatim** (fix
+  necesario: en `--ndjson` el corrector los tragaba y `sttd` no cerraba la
+  sesión), las `final` llevan `text` corregido + `corrections` (campo extra
+  opcional, R5-compatible). El juez (`laya serve` + laya-multilingual Q8_0)
+  corre como servicio aparte en :8092; el **contexto previo sale del propio
+  stream** (las `final` anteriores, `--context 1`).
+- **Demo en vivo** (fuente sintética de `stt-events/1` con los casos `ctx-*` +
+  cliente `tests/ws_probe.py collect` contra `ws://127.0.0.1:4719/v1/feed`):
+  `hello` → `start` → 4 `final` → `eof`, close `1000`. El cliente recibió
+  **«El jurado revisó el informe…» → «El médico revisó el informe…»**
+  (p 0.83, margen 0.67; en `corrections`) gracias a la frase anterior («En el
+  hospital trabajan hasta muy tarde.») como contexto, y «Vamos a la plaza esta
+  tarde» **sin tocar** (casa 0.58 < gate 0.7). Artefactos:
+  `var/tmp/laya/{client_out.json,server_demo_dec.ndjson,serve_demo.log}`.
+- **Capacidad en la config de server**: con el STT real la medición (§6.3/§6.4.1
+  de MODELOS) es ~825 MB (kroko-es 254 + laya 516–571) y RTF 0.49–0.52 con el
+  juez decidiendo — sigue en tiempo real; el juez añade ≈1.5 s por `final` en
+  post-proceso.
+
+**Archivos tocados**: `scripts/stt-correct.py` (pass-through de
+`start`/`partial`/`eof` en `--ndjson` + flush por línea), `docs/MODELOS.md`
+(§6.4.1: prueba en el server), `PROGRESO.md`.
+**Checks**: G1 ✅ (`py_compile` OK), G2 ✅ (evidencia arriba), G3 ✅, G4 ✅,
+G6 ✅ (sin procesos residuales verificados con `ps`; artefactos solo en `var/`).
+G5 ⬜ no re-ejecutado (no hay cambios de núcleo).
+**Siguiente paso**: igual que Sesión 021 (generación automática de candidatos
+similares, fine-tune para confusos ES, validación con frases de dictado del
+usuario); para la demo con micrófono real basta sustituir la fuente sintética
+por `scripts/stt-mic.sh --engine sherpa-es` en el mismo `--pipeline`.
 
 ### Sesión 021 — 2026-10-25
 **Alcance**: pregunta del usuario — ¿se probó tomar palabras/frases similares a

@@ -396,6 +396,32 @@ python3 scripts/stt-correct.py --sources lexical-neighbour --context 1 \
     --candidates candidatos.json --gate-p 0.7 --gate-margin 0.2 --per-slot
 ```
 
+**Prueba en el server** (Sesión 022, `sttd` + WS `stt-remote/1`): el corrector
+cabe como filtro **dentro del comando de sesión** (D20) sin tocar contratos —
+los eventos siguen siendo `stt-events/1` (los `start`/`partial`/`eof` pasan
+verbatim) y `corrections` es un campo extra opcional (R5: compatible). El juez
+(`laya serve`) corre como servicio aparte; el contexto previo sale del propio
+stream (las `final` anteriores):
+
+```sh
+sh scripts/fetch-laya.sh && var/tmp/ggmlc/build/examples/laya/laya serve \
+    var/models/laya-multilingual/laya_multilingual_q8_0.gguf --port 8092 &
+sh scripts/stt-serve.sh --pipeline 'CMD_STT | python3 -u scripts/stt-correct.py \
+    --ndjson --sources lexical-neighbour --candidates candidatos.json \
+    --context 1 --per-slot --gate-p 0.7 --gate-margin 0.2 --rewrite'
+# CMD_STT = "scripts/stt-mic.sh --engine sherpa-es" (mic) o una fuente de eventos
+```
+
+Evidencia (fuente sintética de `stt-events/1` + cliente `tests/ws_probe.py
+collect`): el cliente recibió `hello` → `start` → 4 `final` → `eof` (close
+1000) con **«El jurado…» corregido a «El médico…»** (p 0.83, margen 0.67,
+visibles en el campo `corrections`) porque la frase anterior («En el hospital
+trabajan hasta muy tarde.») llegó como contexto, y el caso fronterizo («Vamos
+a la plaza esta tarde») **sin tocar** (casa 0.58 < gate 0.7). Latencia ≈1.5 s
+por `final` (tiempo del juez, post-proceso). Con el STT real la memoria total
+medida es ~825 MB (kroko-es + laya) y el RTF 0.49–0.52 sigue en tiempo real
+(§6.3).
+
 Pieza pendiente: la **generación** de candidatos similares (vecinos
 fonéticos/ediciones del ASR + diccionario del usuario, V4) — hoy los grupos de
 candidatos se entregan por `--candidates` (JSON palabra → descripción).

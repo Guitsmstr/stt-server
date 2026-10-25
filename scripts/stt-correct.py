@@ -342,8 +342,10 @@ def main():
             try:
                 ev = json.loads(line)
             except ValueError:
+                print(line, flush=True)  # pass-through: keep the stream valid
                 continue
             if ev.get("type") != "final":
+                print(line, flush=True)  # start/partial/eof verbatim (stt-events/1)
                 continue
             text = ev.get("text", "")
         else:
@@ -369,9 +371,9 @@ def main():
             ev["corrections"] = [{"from": s["word"], "to": s["best"],
                                  "p": s["best_p"], "margin": s["margin"]}
                                 for s in slots if s["accepted"]]
-            print(json.dumps(ev, ensure_ascii=False))
+            print(json.dumps(ev, ensure_ascii=False), flush=True)
         else:
-            print(new if args.rewrite else text)
+            print(new if args.rewrite else text, flush=True)
         history.append(new if args.rewrite else text)
     if args.decisions:
         dec_out.close()
