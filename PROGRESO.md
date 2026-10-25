@@ -8,7 +8,7 @@
 |---|---|
 | **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
 | **Última actualización** | 2026-10-25 (Sesión 020) |
-| **Siguiente paso** | La línea del corrector necesita **fine-tune** de laya-multilingual sobre nuestros confusion sets (MODELOS §7.6; entrenamiento fuera del dispositivo, cierre con `tests/corrector_eval.py`: hoy precisión 9–18 %, objetivo 100 % antes de `--rewrite`). Usos ya validados del juez: descarte A/B de hipótesis basura (0.95) y candidatos de palabra de contenido (0.99). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
+| **Siguiente paso** | Dos vías abiertas y medidas: (1) **generación de candidatos similares** (vecinos fonéticos/ediciones del ASR + diccionario del usuario, V4) para el modo ya validado de `stt-correct.py` (léxico + contexto previo: 100 % precisión con gate p ≥ 0.7 — MODELOS §6.4.1); (2) **fine-tune** de laya-multilingual para la clase de confusos ES (hoy 15–21 % — §6.4/§7.6). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
 
@@ -172,6 +172,55 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 021 — 2026-10-25
+**Alcance**: pregunta del usuario — ¿se probó tomar palabras/frases similares a
+la detectada en el speech y medir cuál es la más correcta **según la frase
+anterior**? La selección entre candidatos ya estaba probada (palabra en su
+frase y A/B de frases), pero **no** esa configuración exacta ⇒ ejecutada y
+luego integrada en el prototipo y la suite.
+
+**Hechos (evidencia)**
+- **Candidatos similares + frase anterior como contexto** (probes
+  `var/tmp/laya/context_probe*.py`; casos `ctx-*` añadidos a
+  `tests/corrector_eval.py`): **4/4 ES aciertan con contexto previo** (2/4 sin
+  él) — playa/plaza 0.03→0.53, médico/jurado 0.07→0.57, ola/hola 0.96,
+  presidente/precedente 0.86 — y el **error real de whisper EN** se corrige
+  («feel better» → «fail better» 0.68; la palabra aislada «fail» 0.93–0.94).
+  La frase anterior mueve las probabilidades en la dirección correcta, pero no
+  rescata los confusos de palabra funcional/acento (Kennedy sigue fallando
+  aunque la frase paralela esté en el contexto).
+- **Requisito medido**: cada candidato necesita **descripción semántica** en
+  `criteria` — con palabras desnudas el juez elige «casa» 0.59; con
+  descripciones elige «playa» 0.51 (consistente con §6.4: puntúa
+  descripciones contra el estado). Los casos fronterizos (~0.5) son inestables
+  entre corrientes de prompt ⇒ gate alto los retiene.
+- **Métricas por fuente** (`tests/corrector_eval.py`, 26 casos):
+  `lexical-neighbour` **75 % precisión / 75 % recall** (gate p 0.55/m 0.20) y
+  **100 % precisión** con p ≥ 0.7 (recall 75 %); `confusion-set` **15–21 %** ⇒
+  se mantiene desactivada. Nota: marcar varios huecos a la vez contamina el
+  contexto de los huecos hermanos («esta tarde» → «{2} tarde») ⇒ modo por-slot.
+- **Prototipo actualizado**: `scripts/stt-correct.py` ahora soporta
+  `--context N` (frase(s) anterior(es) en el estado), `--candidates FILE`
+  (grupos de vecinos léxicos con descripción), `--sources` (filtro por fuente
+  de sospecha), `--prev/--alt` y `--per-slot`; etiqueta cada hueco por fuente
+  (`lexical-neighbour` / `confusion-set` / `engine-disagreement`). Modo
+  operativo validado registrado en `MODELOS.md` §6.4.1. Demo CLI con contexto
+  real: corrige «jurado»→«médico» (0.87) y deja sin tocar el caso fronterizo
+  (gate p 0.7). **Límite registrado**: con una frase anterior irrelevante como
+  contexto, el caso fronterizo se vuelve un error confiado («playa»→«casa» p
+  0.75, pasa gate 0.7) ⇒ contexto solo desde el stream real de transcripción.
+
+**Archivos tocados**: `scripts/stt-correct.py`, `tests/corrector_eval.py`
+(casos `ctx-*`, desglose por fuente, `--per-slot`), `docs/MODELOS.md` (§6.4.1
+nueva), `PROGRESO.md`.
+**Checks**: G1 ✅ (`py_compile` OK; sin cambios de núcleo ni adaptadores),
+G2 ✅ (evidencia arriba; dumps en `var/tmp/laya/eval_raw_*.json`), G3 ✅, G4 ✅,
+G6 ✅ (artefactos solo en `var/`). G5 ⬜ no re-ejecutado (pipeline sin cambios).
+**Siguiente paso**: (1) generación automática de candidatos similares (vecinos
+fonéticos/ediciones + diccionario del usuario, V4) para el modo validado;
+(2) fine-tune de laya-multilingual para la clase de confusos ES (hoy 15–21 %);
+(3) validación con ~20–30 frases de dictado del usuario.
 
 ### Sesión 020 — 2026-10-25
 **Alcance**: ejecutar el siguiente paso registrado — el **prototipo de

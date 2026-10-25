@@ -11,11 +11,16 @@ Implements the design in docs/MODELOS.md §6.2 (canal ruidoso / teclado):
      wrong form), accepted only over calibrated-probability gates,
   4. edit budget: at most --max-changes per sentence; everything else stays.
 
-STATUS (2026-10-25, session 020): the plumbing works but the zero-shot judge
-is NOT validated for Spanish function-word/accent confusion sets — measured
-precision 9-18% at every gate (docs/MODELOS.md §6.3). It runs as a DRY RUN by
-default (decisions only); pass --rewrite to apply gated edits (do that only
-with a fine-tuned judge or content-word candidates).
+STATUS (2026-10-25, session 020/021): the plumbing works but the zero-shot
+judge is NOT validated for Spanish function-word/accent confusion sets —
+measured precision 9-18% at every gate (docs/MODELOS.md §6.4). It runs as a
+DRY RUN by default (decisions only); pass --rewrite to apply gated edits.
+
+VALIDATED MODE (session 021, MODELOS §6.4.1): lexical-neighbour candidates
+(--candidates, every candidate with a semantic description) + left context
+(--context 1) + per-slot requests (--per-slot) + strict gate (--gate-p 0.7):
+measured 100% precision / 75% recall on tests/corrector_eval.py class ctx-*.
+Keep --sources confusion-set OFF until a fine-tuned judge exists.
 
 The judge is a TypeSafe `/v1/systemone` server:
   var/tmp/ggmlc/build/examples/laya/laya serve \
@@ -118,16 +123,32 @@ def tokenize(text):
     return [(m.start(), m.end(), m.group(0)) for m in TOKEN_RE.finditer(text)]
 
 
-def suspicious_slots(text, lang="es", alt_text=None):
+def suspicious_slots(text, lang="es", alt_text=None, extra_groups=None):
     """Slots with a closed candidate space (V4: confusion sets + engine
-    disagreement). Each slot: {start, end, word, candidates, reason}."""
-    sets = SETS_ES if lang == "es" else SETS_EN
+    disagreement + caller-supplied lexical neighbour groups). Each slot:
+    {start, end, word, candidates, descs, reason}. A candidate MUST carry a
+    semantic description: the judge scores criteria *descriptions* against the
+    state (measured 2026-10-25), bare-word descriptions degrade it badly
+    (playa/plaza: 0.51 with descriptions vs 0.07 bare)."""
+    sets = list(SETS_ES if lang == "es" else SETS_EN)
     slots = []
+    extra_words = {}
+    for g in (extra_groups or []):
+        for w in g:
+            extra_words.setdefault(w.lower(), g)
     for start, end, word in tokenize(text):
+        wl = word.lower()
+        g = extra_words.get(wl)
+        if g:
+            slots.append({"start": start, "end": end, "word": word,
+                          "candidates": sorted(g), "descs": dict(g),
+                          "reason": "lexical-neighbour"})
+            continue
         s = confusables(word, sets)
         if s:
             slots.append({"start": start, "end": end, "word": word,
-                          "candidates": sorted(s), "reason": "confusion-set"})
+                          "candidates": sorted(s), "descs": {},
+                          "reason": "confusion-set"})
     if alt_text:
         mine = [w for _, _, w in tokenize(text)]
         theirs = [w for _, _, w in tokenize(alt_text)]
@@ -148,7 +169,7 @@ def suspicious_slots(text, lang="es", alt_text=None):
                     if len(cand) > 1 and not any(
                             sl["start"] == start for sl in slots):
                         slots.append({"start": start, "end": end, "word": word,
-                                      "candidates": sorted(cand),
+                                      "candidates": sorted(cand), "descs": {},
                                       "reason": "engine-disagreement"})
     slots.sort(key=lambda sl: sl["start"])
     return slots
@@ -166,10 +187,11 @@ def _post(url, body, timeout=120):
 
 
 def _question(slot, lang, idx, flavor="es"):
-    descs = DESCR_ES if lang == "es" else DESCR_EN
+    descs = dict(DESCR_ES if lang == "es" else DESCR_EN)
+    descs.update(slot.get("descs") or {})
     crit = {}
     for c in slot["candidates"]:
-        crit[c] = descs.get(c, c)  # a description is mandatory, never null
+        crit[c] = descs.get(c, c)
     if flavor == "en":
         instr = "Which word belongs in the {%d} slot?" % idx
     else:
@@ -177,8 +199,11 @@ def _question(slot, lang, idx, flavor="es"):
     return {"type": "choice", "instructions": instr, "criteria": crit}
 
 
-def _state(text, slots, lang):
-    """Sentence with every slot marked; markers are inserted back to front."""
+def _state(text, slots, lang, context=""):
+    """Sentence with every slot marked; markers are inserted back to front.
+    `context` = previous sentence(s): measured 2026-10-25 (Sesión 021) that the
+    judge needs it to pick among lexical neighbours (playa/plaza 0.03 -> 0.53,
+    médico/jurado 0.07 -> 0.57 with left context)."""
     out = text
     for i, sl in sorted(enumerate(slots), key=lambda kv: -kv[1]["start"]):
         out = out[:sl["start"]] + "{%d}" % (i + 1) + out[sl["end"]:]
@@ -186,16 +211,24 @@ def _state(text, slots, lang):
             "reconocedor y puede contener un error. Frase: " if lang == "es"
             else "Speech-to-text transcript; each braced word comes from the "
                  "recognizer and may contain an error. Sentence: ")
-    return lead + "«" + out + "»"
+    pre = ""
+    if context:
+        pre = ("Contexto previo: «%s». " if lang == "es"
+               else "Previous context: «%s». ") % context
+    return pre + lead + "«" + out + "»"
 
 
-def collect(text, judge, lang="es", batch=True, flavor="es"):
+def collect(text, judge, lang="es", batch=True, flavor="es", context="",
+            extra_groups=None, alt_text=None, sources=None):
     """Judge every suspicious slot; returns slots with per-candidate probs."""
-    slots = suspicious_slots(text, lang)
+    slots = suspicious_slots(text, lang, alt_text=alt_text,
+                             extra_groups=extra_groups)
+    if sources:
+        slots = [sl for sl in slots if sl["reason"] in sources]
     if not slots:
         return [], 0.0
     if batch:
-        state = _state(text, slots, lang)
+        state = _state(text, slots, lang, context)
         questions = {"w%d" % (i + 1): _question(sl, lang, i + 1, flavor)
                      for i, sl in enumerate(slots)}
         out, ms = _post(judge, {"state": state, "questions": questions})
@@ -206,7 +239,7 @@ def collect(text, judge, lang="es", batch=True, flavor="es"):
     else:
         ms = 0.0
         for i, sl in enumerate(slots):
-            state = _state(text, [sl], lang)
+            state = _state(text, [sl], lang, context)
             out, ms1 = _post(judge, {
                 "state": state,
                 "questions": {"w": _question(sl, lang, 1, flavor)}})
@@ -251,8 +284,10 @@ def rewrite(text, slots):
 
 
 def correct(text, judge, lang="es", gate_p=0.5, gate_margin=0.2,
-            max_changes=3, batch=True, flavor="es"):
-    slots, ms = collect(text, judge, lang, batch, flavor)
+            max_changes=3, batch=True, flavor="es", context="",
+            extra_groups=None, alt_text=None, sources=None):
+    slots, ms = collect(text, judge, lang, batch, flavor, context,
+                        extra_groups, alt_text, sources)
     apply_gates(slots, gate_p, gate_margin, max_changes)
     return rewrite(text, slots), slots, ms
 
@@ -275,6 +310,17 @@ def main():
                     help="instructions language for the judge question")
     ap.add_argument("--ndjson", action="store_true",
                     help="input/output stt-events NDJSON finals")
+    ap.add_argument("--context", type=int, default=1,
+                    help="previous sentences included as context (default 1)")
+    ap.add_argument("--prev", help="previous sentence for --text mode")
+    ap.add_argument("--alt", help="alt-engine transcript, one line per input "
+                                 "line (engine-disagreement signal)")
+    ap.add_argument("--candidates", help="JSON file with lexical-neighbour "
+                    "groups: [{'word': 'description', ...}, ...] — every "
+                    "candidate needs a semantic description")
+    ap.add_argument("--sources", help="comma list of suspicion sources to use: "
+                    "confusion-set,lexical-neighbour,engine-disagreement "
+                    "(default: all)")
     ap.add_argument("--decisions", help="write decisions NDJSON here (default: stderr)")
     args = ap.parse_args()
 
@@ -286,7 +332,12 @@ def main():
             return [ln.rstrip("\n") for ln in f if ln.strip()]
 
     dec_out = open(args.decisions, "w") if args.decisions else sys.stderr
-    for line in feed():
+    lines = feed()
+    alt_lines = open(args.alt).read().splitlines() if args.alt else []
+    groups = json.load(open(args.candidates)) if args.candidates else None
+    sources = set(args.sources.split(",")) if args.sources else None
+    history = [args.prev] if args.prev else []
+    for n, line in enumerate(lines):
         if args.ndjson:
             try:
                 ev = json.loads(line)
@@ -297,9 +348,13 @@ def main():
             text = ev.get("text", "")
         else:
             text, ev = line, None
+        ctx = " ".join(history[-args.context:]) if args.context else ""
+        alt = alt_lines[n] if n < len(alt_lines) else None
         new, slots, ms = correct(text, args.judge, args.lang, args.gate_p,
                                  args.gate_margin, args.max_changes,
-                                 batch=not args.per_slot, flavor=args.flavor)
+                                 batch=not args.per_slot, flavor=args.flavor,
+                                 context=ctx, extra_groups=groups, alt_text=alt,
+                                 sources=sources)
         for i, sl in enumerate(slots):
             dec_out.write(json.dumps({
                 "slot": i, "word": sl["word"], "candidates": sl["probs"],
@@ -317,6 +372,7 @@ def main():
             print(json.dumps(ev, ensure_ascii=False))
         else:
             print(new if args.rewrite else text)
+        history.append(new if args.rewrite else text)
     if args.decisions:
         dec_out.close()
     return 0

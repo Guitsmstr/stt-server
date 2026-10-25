@@ -340,8 +340,65 @@ lista para re-evaluar con juez ajustado. Vías, en orden de promesa:
    100 % en la suite antes de `--rewrite`).
 2. **Restringir candidatos a palabras de contenido** (donde el juez acierta
    0.99): nombres, términos del usuario, confusiones léxicas — no acentos.
+   ✅ **validado con contexto previo** en §6.4.1 (75 % precisión/recall;
+   100 % de precisión con gate p ≥ 0.7).
 3. **Rechazo de basura A/B** (donde acierta 0.95): descartar hipótesis de
    motor claramente malas antes de cualquier corrección.
+
+### 6.4.1 Candidatos similares + frase anterior como contexto (Sesión 021)
+
+**Pregunta del usuario**: ¿se probó tomar palabras/frases similares a la
+detectada y medir cuál es la más correcta **según la frase anterior**? La
+selección entre candidatos ya estaba probada (palabra en su frase y A/B de
+frases), pero **no** con candidatos léxicos por similitud ni con la frase
+anterior como contexto. Ejecutado en la Sesión 021 (`var/tmp/laya/
+context_probe*.py`; casos incorporados a `tests/corrector_eval.py` como clase
+`ctx-*`):
+
+| Caso (candidatos similares) | sin contexto previo | con frase anterior |
+|---|---|---|
+| playa/plaza/casa/pista — «Vamos a la ___ esta tarde» | ❌ plaza 0.48 | ✅ playa 0.51–0.58 (fronterizo) |
+| médico/jurado/… — «El ___ revisó el informe» | ❌ jurado 0.60 | ✅ médico 0.87–0.90 |
+| ola/hola/bola/lola — «La ___ rompió en la costa» | ✅ ola 0.91 | ✅ ola 0.96–0.99 |
+| presidente/precedente/presente — «El ___ del gobierno habló» | ✅ presidente 0.84 | ✅ presidente 0.86–0.87 |
+| EN real (whisper): fail/feel/fell/fall — «Fail again. ___ better» | ✅ fail 0.93–0.94 | ✅ fail 0.93 |
+
+⇒ **4/4 ES con contexto previo (2/4 sin él)** y el error real de whisper EN
+queda corregido («feel better» → «fail better» 0.68). La frase anterior mueve
+las probabilidades en la dirección correcta (playa 0.03 → 0.53, médico 0.07 →
+0.57): el contexto discursivo **sí se usa**, pero solo rescata confusos
+léxicos, no los de palabra funcional/acento (§6.4: Kennedy sigue fallando
+aunque la frase paralela esté en el contexto).
+
+**Requisitos y límites medidos**:
+1. **Descripción semántica por candidato, obligatoria**: con palabras desnudas
+   como `criteria` el juez elige «casa» 0.59; con descripciones elige «playa»
+   0.51 — consistente con que puntúa descripciones contra el estado (§6.4).
+2. Casos fronterizos (~0.5) son **inestables** entre corrientes de prompt ⇒
+   gate alto (p ≥ 0.7) los retiene.
+3. Métricas por fuente (suite, `tests/corrector_eval.py`): `lexical-neighbour`
+   **75 % precisión / 75 % recall** (p 0.55/m 0.20) y **100 % precisión** con
+   p ≥ 0.7 (recall 75 %); `confusion-set` **15–21 %** ⇒ sigue desactivada.
+4. Marcar varios huecos a la vez contamina el contexto de los huecos hermanos
+   («esta tarde» → «{2} tarde»); el modo por-slot preserva la frase completa.
+5. **La calidad del contexto importa y el gate no es infalible**: con una frase
+   anterior *irrelevante* como contexto, el caso fronterizo se vuelve un error
+   **confiado** («playa»→«casa» con p 0.75, que pasa un gate de 0.7). Con el
+   contexto correcto, el mismo caso queda sin tocar (p 0.58 < 0.7) y los
+   claros se corrigen («jurado»→«médico» 0.87). ⇒ contexto desde el propio
+   stream de transcripción (frase(s) anterior(es) reales), nunca inventado; el
+   dry-run sigue siendo la default.
+
+**Modo operativo validado del prototipo**:
+
+```sh
+python3 scripts/stt-correct.py --sources lexical-neighbour --context 1 \
+    --candidates candidatos.json --gate-p 0.7 --gate-margin 0.2 --per-slot
+```
+
+Pieza pendiente: la **generación** de candidatos similares (vecinos
+fonéticos/ediciones del ASR + diccionario del usuario, V4) — hoy los grupos de
+candidatos se entregan por `--candidates` (JSON palabra → descripción).
 
 ## 7. Líneas abiertas / siguiente paso
 
