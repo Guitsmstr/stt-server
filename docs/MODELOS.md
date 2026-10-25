@@ -288,17 +288,69 @@ Lecturas para el corrector:
    mismas preguntas) — mejor que llama.cpp (una pregunta = un forward) para
    juzgar varias palabras por frase.
 
+### 6.4 Prototipo de corrector estilo teclado — medido (2026-10-25, Sesión 020)
+
+**Montado** (post-proceso, fuera del núcleo — ver ARQUITECTURA D22):
+`scripts/stt-correct.py` (señal de sospecha → candidatos cerrados → juez
+`/v1/systemone` → gates p/margen → presupuesto de ≤3 cambios → reescritura;
+señal de desacuerdo de motores vía `--alt`; integra con `stt-events/1` por
+`--ndjson`) y `tests/corrector_eval.py` (22 casos: fallos reales del
+dispositivo, confusion sets sintéticos y controles limpios; los gates se
+barren **offline** sobre las probabilidades crudas). **Dry-run por defecto**:
+solo informa decisiones; `--rewrite` aplica los cambios aceptados.
+
+**Resultado de la validación** (laya-multilingual Q8_0, 22 casos,
+variaciones de prompt × tipo `choice`/`noul` × idioma de instrucciones es/en):
+
+| Métrica | Resultado |
+|---|---|
+| Precisión en todo el barrido de gates (p 0.30–0.70, margen 0.05–0.30) | **9–18 %** — ningún gate con falsos positivos = 0 |
+| Recall máximo alcanzable | ~20 % |
+| Error real («si»→«qué», clip es16k) | ❌ no detectado; el modelo prefiere dejar «si» |
+| Controles limpios («Hay mucha gente…», «Está bien…») | ❌ propone «ay» (0.85–0.92) y «esta» (0.71–0.90) |
+| Demo end-to-end (kroko-es → corrector) | propondría por→para ×2 y tú→tu (3 cambios **incorrectos**, p 0.66–0.86) y perdería el error real |
+
+**Qué SÍ y qué NO puede hacer el juez cero-shot** (caracterización):
+
+| Tarea | ¿Sirve? | Evidencia |
+|---|---|---|
+| Fill-in de palabras de contenido (gente/mesa/perro) | ✅ | 0.99 |
+| Routing semántico / urgencia / noul grueso | ✅ | 1.00 / 2.75 / (0.02 limpio vs 0.86 error léxico) |
+| Rechazo de hipótesis basura (A/B obvios) | ✅ | 0.95 |
+| Confusiones de palabra funcional/acento (que/qué, si/sí, hay/ay, esta/está) | ❌ | respuestas al azar; se invierten con el prompt |
+| Arbitraje A/B entre hipótesis parecidas (kroko vs whisper) | ❌ | 0.44–0.56 |
+| Sustitución propuesta (`noul`) | ❌ | 0.23 correcta vs 0.11 incorrecta (sin separación) |
+
+**Causa raíz descubierta**: el modelo puntúa las **descripciones de `criteria`**
+contra el estado, no las palabras candidatas — intercambiar las descripciones
+de «hay»/«ay» invierte la respuesta (0.92 «ay» → 0.61 «hay»); cambiar el idioma
+de las instrucciones también la invierte (caso real: «si» 0.56 en es vs «qué»
+0.56 en en). Para pares de acento/palabra funcional las descripciones son
+texto gramatical que no discrimina ⇒ el modelo apoya un prior y sus
+probabilidades, aunque calibradas para tareas semánticas, **no lo están para
+esta tarea** ⇒ los gates no pueden salvarlo.
+
+**Consecuencia de diseño (veredicto)**: el corrector estilo teclado **no se
+activa con juez cero-shot** para los confusion sets del español (son justo los
+errores de kroko-es). Queda como herramienta en dry-run + suite de regresión
+lista para re-evaluar con juez ajustado. Vías, en orden de promesa:
+1. **Fine-tune de laya-multilingual sobre nuestros confusion sets** (§7.6;
+   upstream 0.362 → 0.766) — con el mismo `scripts/stt-correct.py` y
+   `tests/corrector_eval.py` como cierre (hoy: precisión 9–18 %; objetivo:
+   100 % en la suite antes de `--rewrite`).
+2. **Restringir candidatos a palabras de contenido** (donde el juez acierta
+   0.99): nombres, términos del usuario, confusiones léxicas — no acentos.
+3. **Rechazo de basura A/B** (donde acierta 0.95): descartar hipótesis de
+   motor claramente malas antes de cualquier corrección.
+
 ## 7. Líneas abiertas / siguiente paso
 
-1. **Prototipo de corrector estilo teclado (§6.2) con Laya como juez (V2)**:
-   runtime ya resuelto (§6.3): `laya serve` con **laya-multilingual Q8_0**
-   (`scripts/fetch-laya.sh`); `pip install laya` descartado en musl. Montar
-   candidatos V4 (confusion sets ES + desacuerdo de motores) con
-   **descripciones en `criteria`** (obligatorio, §6.3 lectura 2) y validar
-   sobre los casos que fallaron hoy («si»→«qué», «fell»→«fail»,
-   «quien por»→«tú por»). Gates: p ≥ 0.6 y margen ≥ 0.3, máx 3 cambios por
-   frase. Esperado: el juez confirma/descarta; los casos duros («tú») quedan
-   para fine-tune (ítem 6).
+1. **Prototipo de corrector estilo teclado (§6.2) con Laya como juez (V2)** —
+   ✅ ejecutado (Sesión 020, §6.4): montado y validado; **veredicto negativo
+   para confusos ES cero-shot** (precisión 9–18 % en todos los gates ⇒ en
+   dry-run). Siguiente paso real de esta línea = **fine-tune** (ítem 6).
+   Montaje: `scripts/fetch-laya.sh`; herramienta `scripts/stt-correct.py`;
+   suite `tests/corrector_eval.py` (22 casos + barrido de gates offline).
 2. **Test de selección completo** (aceptado por el usuario): kroko-es
    (en vivo, rápido) + **whisper-small** como segundo motor **en post-proceso**
    — su lentitud (RTF 1.55) no molesta offline: una sesión de 20 min se
@@ -341,6 +393,10 @@ var/tmp/ggmlc/build/examples/laya/laya serve \
 python3 tests/laya_probe.py --url http://127.0.0.1:8092   # casos ES/EN
 python3 tests/laya_coexist.py --url http://127.0.0.1:8092 \
     --stt-cmd './var/bin/stt once --adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-es clip.wav'
+
+# corrector estilo teclado (Sesión 020; dry-run por defecto, ver §6.4)
+python3 tests/corrector_eval.py --judge http://127.0.0.1:8092   # suite + gates
+python3 scripts/stt-correct.py --ndjson < finals.ndjson         # solo decisiones
 
 # LLM local (ajustes seguros por el incidente §5)
 sh scripts/fetch-llm.sh                           # llama.cpp v0.7.0 + Qwen3-1.7B

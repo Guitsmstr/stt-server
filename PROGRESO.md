@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 019: Laya montado y medido (runtime + capacidad + juez ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.3. Sesión 018: whisper-small + LLM local Qwen3-1.7B. |
-| **Última actualización** | 2026-10-25 (Sesión 019) |
-| **Siguiente paso** | Prototipo de corrector estilo teclado (canal ruidoso) con **Laya** como juez: runtime ya probado (`laya serve` + laya-multilingual Q8_0, `scripts/fetch-laya.sh`); falta montar candidatos V4 + gates y validar con ~20–30 frases del usuario — [`docs/MODELOS.md`](docs/MODELOS.md) §6.2–§6.3 y §7. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
+| **Última actualización** | 2026-10-25 (Sesión 020) |
+| **Siguiente paso** | La línea del corrector necesita **fine-tune** de laya-multilingual sobre nuestros confusion sets (MODELOS §7.6; entrenamiento fuera del dispositivo, cierre con `tests/corrector_eval.py`: hoy precisión 9–18 %, objetivo 100 % antes de `--rewrite`). Usos ya validados del juez: descarte A/B de hipótesis basura (0.95) y candidatos de palabra de contenido (0.99). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
 
@@ -172,6 +172,66 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 020 — 2026-10-25
+**Alcance**: ejecutar el siguiente paso registrado — el **prototipo de
+corrector estilo teclado con Laya como juez** (`MODELOS.md` §6.2/§7.1).
+Montado, validado y caracterizado. **Veredicto: no activable cero-shot para los
+confusion sets del español**; queda en dry-run con la suite de regresión lista
+para un juez ajustado.
+
+**Hechos (evidencia)**
+- **Implementado**: `scripts/stt-correct.py` — señal de sospecha (confusion
+  sets ES + desacuerdo de motores vía `--alt`) → candidatos cerrados (nunca
+  genera texto) → pregunta tipada `choice` al juez (`/v1/systemone`) con
+  descripción por candidato → gates p/margen → presupuesto ≤ 3 cambios por
+  frase → reescritura; integración `stt-events/1` con `--ndjson`;
+  **dry-run por defecto** (`--rewrite` para aplicar). `tests/corrector_eval.py`
+  — 22 casos (fallos reales del proyecto: kroko-es sobre es16k y la hipótesis
+  whisper de MODELOS §5.1; confusion sets sintéticos; controles limpios) con
+  **barrido de gates offline** sobre probabilidades crudas.
+- **Validación** (laya-multilingual Q8_0): precisión **9–18 %** en todo el
+  barrido (p 0.30–0.70 × margen 0.05–0.30) y **ningún gate con falsos
+  positivos = 0**; recall máximo ~20 %. El error real «si»→«qué» **no** se
+  detecta; los controles limpios reciben cambios falsos («Hay»→«ay»
+  0.85–0.92, «Está»→«esta» 0.71–0.90).
+- **Demo end-to-end** (pipeline real: `stt once` kroko-es sobre es16k.wav →
+  corrector, artefactos `var/tmp/laya/e2e_*`): propondría **3 cambios
+  incorrectos** (por→para ×2 con p 0.83–0.86, tú→tu con p 0.66) y perdería el
+  error real ⇒ el dry-run por defecto protege el texto.
+- **Caracterización del juez** (6+ formulaciones de prompt, `choice` y `noul`,
+  instrucciones en es y en): ✅ fill-in de palabras de contenido (0.99),
+  routing/urgencia (1.00 / 2.75), rechazo de hipótesis basura A/B (0.95);
+  ❌ confusos de palabra funcional/acento (respuestas al azar que se invierten
+  con el prompt), arbitraje A/B entre hipótesis parecidas (0.44–0.56),
+  sustitución propuesta vía `noul` (0.23 correcta vs 0.11 incorrecta).
+- **Causa raíz**: el modelo puntúa las **descripciones de `criteria`** contra
+  el estado, no las palabras candidatas (intercambiar las descripciones de
+  «hay»/«ay» invierte la respuesta 0.92 → 0.61; cambiar el idioma de las
+  instrucciones invierte el caso real). Para pares de acento las descripciones
+  no discriminan ⇒ las probabilidades, calibradas para tareas semánticas, no
+  lo están para esta tarea ⇒ ningún gate la salva.
+- Hallazgos de implementación: bug de prompt corregido (las instrucciones
+  referenciaban `{WORD}` mientras el estado marcaba los huecos `{1}`); batch
+  por frase ≈ 3.2 s (una petición con N preguntas) frente a ~1.3 s por slot
+  aislado; memoria y latencia sin cambios respecto a §6.3.
+
+**Archivos tocados**: `scripts/stt-correct.py` (nuevo),
+`tests/corrector_eval.py` (nuevo), `docs/MODELOS.md` (§6.4 nueva; §7.1 y §8
+actualizados), `docs/ARQUITECTURA.md` (**D22**), `PROGRESO.md`.
+**Checks**: G1 ✅ (`python3 -m py_compile` de ambos scripts OK; sin cambios de
+núcleo ni de adaptadores), G2 ✅ (evidencia arriba), G3 ✅ (docs
+sincronizadas), G4 ✅ (esta bitácora), G6 ✅ (artefactos solo en `var/`).
+G5 ⬜ no re-ejecutado (el pipeline no cambió; las suites de stages no cubren
+estos artefactos).
+**Siguiente paso**: la línea del corrector exige **fine-tune**
+de laya-multilingual sobre nuestros confusion sets (`MODELOS.md` §7.6;
+entrenamiento fuera del dispositivo, cierre con `tests/corrector_eval.py`:
+hoy 9–18 % de precisión, objetivo 100 % antes de habilitar `--rewrite`).
+Mientras tanto, usos inmediatos ya validados del juez: descarte A/B de
+hipótesis basura (0.95) y candidatos de **palabra de contenido** (0.99).
+Sigue abierta la validación con ~20–30 frases de dictado del usuario (hoy la
+suite combina clips del proyecto + casos sintéticos).
 
 ### Sesión 019 — 2026-10-25
 **Alcance**: revisión de la implementación pendiente con **Laya** (corrector
