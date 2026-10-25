@@ -132,15 +132,17 @@ func TestVADSilenceSkip(t *testing.T) {
 // The look-back window places cuts at energy minima: a pause before the
 // boundary wins over the fixed 2 s position.
 func TestVADCutAtEnergyDip(t *testing.T) {
-	// speech 0-1.8, pause 1.8-1.95, speech 1.95-4.0: boundary 2.0 must cut
-	// inside the pause, not at 2.0 (mid-speech).
-	pcm := concat(speech(1800, 0.2), silence(150), speech(2050, 0.2))
+	// speech 0-1.8, pause 1.8-2.05, speech 2.05-4.0: the segment must end
+	// inside the pause with the 200 ms tail guard (cut at 2.0), not at 2.3
+	// (mid-speech). A 150 ms dip is now treated as intra-phrase: it is
+	// shorter than the guard, so no word is split by a guard that cannot fit.
+	pcm := concat(speech(1800, 0.2), silence(250), speech(1950, 0.2))
 	segs := collect(t, pcm, opts(true))
 	if len(segs) < 2 {
 		t.Fatalf("expected >= 2 segments, got %d", len(segs))
 	}
-	if segs[0].T1 < 1.795 || segs[0].T1 > 1.95 {
-		t.Fatalf("cut at %v, want inside pause [1.8, 1.95]", segs[0].T1)
+	if segs[0].T1 < 1.795 || segs[0].T1 > 2.05 {
+		t.Fatalf("cut at %v, want inside pause [1.8, 2.05]", segs[0].T1)
 	}
 }
 
@@ -174,14 +176,32 @@ func TestVADStrongPauseBeatsMinSegment(t *testing.T) {
 	if len(segs) < 2 {
 		t.Fatalf("expected >= 2 segments, got %d", len(segs))
 	}
-	if segs[0].T1 < 0.39 || segs[0].T1 > 0.43 {
-		t.Fatalf("first cut at %v, want at the 0.4 s pause", segs[0].T1)
+	if segs[0].T1 < 0.59 || segs[0].T1 > 0.63 {
+		t.Fatalf("first cut at %v, want speech+200ms guard (0.6 s)", segs[0].T1)
 	}
 	if !segs[0].Speech || segs[1].Speech {
 		t.Fatalf("speech/pause marks: %+v", segs[:2])
 	}
 	if segs[2].T0 > 0.95 { // onset 0.9 s minus 200 ms preroll
 		t.Fatalf("next speech segment starts at %v, want <= 0.95", segs[2].T0)
+	}
+}
+
+// The speech segment keeps a 200 ms tail guard: cutting at the last loud hop
+// clips quiet word endings and gives streaming models no right context, so the
+// last word stayed undecoded until the next segment arrived (Sesión 017).
+func TestVADTailGuard(t *testing.T) {
+	pcm := concat(speech(400, 0.2), silence(1000))
+	segs := collect(t, pcm, opts(true))
+	if len(segs) == 0 || !segs[0].Speech {
+		t.Fatalf("missing speech segment: %+v", segs)
+	}
+	// 0.4 s speech + 0.2 s guard; the remaining 0.8 s is the skip region.
+	if segs[0].T1 < 0.59 || segs[0].T1 > 0.63 {
+		t.Fatalf("speech segment ends at %v, want 0.6 s (400ms speech + 200ms guard)", segs[0].T1)
+	}
+	if len(segs) < 2 || segs[1].Speech {
+		t.Fatalf("pause after the guard not emitted as a skip: %+v", segs)
 	}
 }
 

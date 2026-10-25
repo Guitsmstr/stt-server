@@ -3,12 +3,15 @@
 // Stage 3 (docs/ARQUITECTURA.md §4, decision D9): with VAD enabled the stream
 // is cut at natural pauses using a classic endpointer. A silence run of >= 3
 // analysis hops (>= 90 ms — shorter dips are intra-word closures) ends the
-// current segment at the last loud hop, and the pause itself is emitted as a
-// non-speech segment: the caller drops those, so silence produces no adapter
-// calls and no events. The next segment starts at the following onset minus a
-// 200 ms preroll, so soft consonant onsets survive and no sent segment leads
-// with silence (leading silence makes moonshine return empty text). Fluent
-// speech with no pause is force-cut at the deepest dip between FrameMs and
+// current segment, and the pause itself is emitted as a non-speech segment:
+// the caller drops those, so silence produces no adapter calls and no events.
+// The sent speech segment keeps a tailGuardMs (200 ms) guard of that pause:
+// cutting exactly at the last loud hop clips low-energy word endings and
+// leaves streaming models without the right context they need to decode the
+// last word. The next segment starts at the following onset minus a 200 ms
+// preroll, so soft consonant onsets survive and no sent segment leads with
+// silence (leading silence makes moonshine return empty text). Fluent speech
+// with no pause is force-cut at the deepest dip between FrameMs and
 // FrameMs+MaxStretchMs, bounding segment length and latency.
 //
 // With VAD disabled the stream is split into fixed FrameMs frames (v1
@@ -29,9 +32,19 @@ import (
 // consonants at utterance starts are not clipped.
 const prerollMs = 200
 
-// minPauseHops is the silence run (in hops) that counts as a pause: 3 hops
-// = 90 ms with the default hop. Shorter dips are intra-word closures.
+// minPauseHops is the base silence run (in hops) that counts as a pause:
+// 3 hops = 90 ms with the default hop. Shorter dips are intra-word closures.
+// tailGuardMs below can raise this minimum so the guard always fits.
 const minPauseHops = 3
+
+// tailGuardMs is the quiet audio kept at the end of every speech segment.
+// VAD cuts at the first quiet hop after speech; both a non-streaming model
+// (moonshine) and a streaming transducer hold the final phonemes until they
+// see trailing context, and cutting at the last loud hop also clips quiet
+// word endings. Without this guard the last word of a phrase stayed
+// undecoded (and un-emitted) until the next segment arrived — a clap or the
+// next phrase (Sesión 017).
+const tailGuardMs = 200
 
 // strongPauseMs is a silence run that always ends a segment, even before
 // MinSegmentMs of audio has accumulated. Without it, a segment that opened
@@ -86,6 +99,14 @@ func Segments(ctx context.Context, r io.Reader, o Options) <-chan Segment {
 		prerollBytes := bytesPerSecond * prerollMs / 1000
 		minSpeechBytes := bytesPerSecond * o.MinSpeechMs / 1000
 		strongPauseHops := (strongPauseMs + o.HopMs - 1) / o.HopMs
+		tailGuardBytes := bytesPerSecond * tailGuardMs / 1000
+		// Wait one extra hop after the guard so the pause still carries some
+		// quiet audio (a zero-length pause would hide the boundary).
+		tailGuardHops := (tailGuardMs+o.HopMs-1)/o.HopMs + 1
+		minPauseRunHops := minPauseHops
+		if tailGuardHops > minPauseRunHops {
+			minPauseRunHops = tailGuardHops
+		}
 
 		var pending []byte   // audio not emitted yet
 		var hopRMS []float64 // RMS per analysis hop inside pending
@@ -238,14 +259,19 @@ func Segments(ctx context.Context, r io.Reader, o Options) <-chan Segment {
 							}
 						}
 						runLen++
-						if runLen >= minPauseHops && (runStart >= minSegBytes || runLen >= strongPauseHops) {
-							// Real pause: end the segment at the last loud hop;
-							// the pause becomes a skip region. A long silence
-							// is a boundary even before MinSegmentMs, so it is
-							// not swallowed together with the next onset. Short
-							// pauses before the minimum do not cut (they would
-							// fragment phrases); the force cap bounds those.
-							if !emit(runStart, true) {
+						if runLen >= minPauseRunHops && (runStart >= minSegBytes || runLen >= strongPauseHops) {
+							// Real pause: end the segment on the tail guard (the
+							// first tailGuardMs of the pause); the rest becomes
+							// a skip region. A long silence is a boundary even
+							// before MinSegmentMs, so it is not swallowed
+							// together with the next onset. Short pauses before
+							// the minimum do not cut (they would fragment
+							// phrases); the force cap bounds those.
+							cut := runStart + tailGuardBytes
+							if cut > len(pending) {
+								cut = len(pending)
+							}
+							if !emit(cut, true) {
 								return
 							}
 							inPause = true

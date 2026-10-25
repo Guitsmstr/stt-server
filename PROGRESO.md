@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**: demo en vivo con micrófono real (S6.3/S6.5/S6.6) + batería completa de cierre (S6.7) |
-| **Última actualización** | 2026-10-24 (Sesión 016) |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 017: corrección post-cierre de la pérdida de la última palabra con sherpa (Stage 3/5, D21) |
+| **Última actualización** | 2026-10-24 (Sesión 017) |
 | **Siguiente paso** | Sin stage definido: Stage 7 (clientes envían audio) sólo si el uso lo pide. El trabajo pendiente de GitHub (LICENSE, identidad git) sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
@@ -172,6 +172,59 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 017 — 2026-10-24
+**Alcance**: corregir la pérdida de la última palabra con `stt-adapter-sherpa`
+reportada por el usuario («I have to test the model» → «I have to test» hasta
+hacer una palmada). Corrección post-cierre de Stage 3/5, sin stage nuevo.
+
+**Diagnóstico (reproducido)**
+- El VAD cortaba el segmento en el último hop con voz. El transducer
+  streaming retiene su cola de contexto derecho; el pad por frame de 0.6 s no
+  siempre alcanzaba, y con `--frame-pad > 0` el pad de EOF estaba desactivado.
+  La cola quedaba pendiente y solo se decodificaba al llegar el segmento
+  siguiente (una palmada o la frase siguiente), con el `t0`/`t1` de ese
+  segmento.
+- Reproducción determinista: `phrase_sil.wav` (espeak «I have to test the
+  model» + 2 s de silencio) → `partial`/`final` «I am to test»; con un clap
+  sintético después, el final del clap era «the model.». `--vad=false` sí
+  devolvía la frase completa. El ejemplo oficial de sherpa-onnx
+  (`sherpa-onnx-vad-with-online-asr`) confirma el diseño: stream nuevo por
+  segmento VAD y `tail_padding_len = 1.28` (chunk del modelo).
+
+**Cambios**
+- `core/internal/segment`: **tail guard de 200 ms** al final de cada segmento
+  de habla (y espera del run de silencio necesario antes de cortar). Evita
+  recortar finales de palabra de baja energía y da contexto real al modelo.
+- `core/internal/protocol` + `core/cmd/stt`: la cabecera
+  `stt-adapter/1` lleva `"vad":true` cuando el núcleo segmenta con VAD.
+- `adapters/sherpa/sherpa.cc`: con `"vad":true`, cada frame es un enunciado:
+  stream nuevo por frame, `--segment-pad` (1.28 s por defecto) antes de
+  finalizar y `InputFinished`; el `final` es el texto completo del segmento.
+  Con `"vad":false` se conserva el streaming continuo (`--frame-pad` 0.6 s).
+- Docs: CONTRATOS §2.2/§2.3, ARQUITECTURA §4 + **D21**.
+- Tests: `TestVADTailGuard` y expectativas de corte actualizadas; cabecera con
+  `vad:true` verificada en `protocol_test.go`.
+
+**Evidencia**
+- Repro corregida: phrase_sil → `final "I am to test the modules"` (una sola
+  emisión, sin clap); con clap → el clap ya no aporta texto; beckett con VAD →
+  «ever tried / ever failed / no matter / Try again / fail again / fail
+  better»; test_wav EN completo; ES «Tengo que (mojar) el modelo» completo;
+  moonshine «I am to test the model.».
+- Regresiones: `make test` (Stage 1) OK; Stage 2 OK; **Stage 3 ALL OK**
+  (cobertura VAD **100 %**, latencia steady máx 0.574 s ≤ 0.8 s, soak
+  336/336); **Stage 5 ALL OK** (EN 100 %, ES 94.1 %, RTF 0.232/0.202,
+  fan-out y partials); `go vet`/`go test ./...` verdes.
+
+**Archivos tocados**: `core/internal/segment/{segment.go,segment_test.go}`,
+`core/internal/protocol/{protocol.go,protocol_test.go}`,
+`core/cmd/stt/main.go`, `adapters/sherpa/sherpa.cc`, `docs/CONTRATOS.md`,
+`docs/ARQUITECTURA.md`, `PROGRESO.md`.
+**Checks**: G1 ✅ (build Go/C++ limpio), G2 ✅ (arriba), G3 ✅, G4 ✅, G5 ✅
+(stages 1–3 y 5), G6 ✅ (temporales solo en `var/tmp/tail`).
+**Decisiones nuevas**: **D21** (frames VAD = enunciados completos).
+**Siguiente paso**: sin cambios de alcance; Stage 6 sigue cerrado.
 
 ### Sesión 016 — 2026-10-24
 **Alcance**: cierre del **Stage 6** — evidencia en vivo con micrófono real

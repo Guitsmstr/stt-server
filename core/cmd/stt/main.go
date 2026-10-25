@@ -303,6 +303,7 @@ func runPipeline(o resolved, source func(context.Context) <-chan segment.Segment
 		Protocol: protocol.Version,
 		Audio:    protocol.AudioFormat{Rate: o.rate, Channels: o.channels, Format: "s16le"},
 		FrameMs:  o.frameMs,
+		VAD:      o.cfg.Segment.VAD,
 	}
 	_ = out.Event(protocol.Event{Type: "start", Audio: &hdr.Audio})
 

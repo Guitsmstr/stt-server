@@ -15,6 +15,7 @@ func TestFrameFraming(t *testing.T) {
 		Protocol: Version,
 		Audio:    AudioFormat{Rate: 16000, Channels: 1, Format: "s16le"},
 		FrameMs:  2000,
+		VAD:      true,
 	}
 	w, err := NewWriter(&buf, h)
 	if err != nil {
@@ -40,7 +41,7 @@ func TestFrameFraming(t *testing.T) {
 		t.Fatalf("header is not valid JSON: %v", err)
 	}
 	if got.Protocol != Version || got.Audio.Rate != 16000 || got.Audio.Channels != 1 ||
-		got.Audio.Format != "s16le" || got.FrameMs != 2000 {
+		got.Audio.Format != "s16le" || got.FrameMs != 2000 || !got.VAD {
 		t.Fatalf("header mismatch: %+v", got)
 	}
 

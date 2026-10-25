@@ -38,7 +38,7 @@ En cuanto el modelo esté cargado, el adaptador emite **una línea JSON**:
 ### 2.2 Stream de audio (núcleo → adaptador, stdin)
 Primero, **una línea JSON** de cabecera (terminada en `\n`):
 ```json
-{"protocol":"stt-adapter/1","audio":{"rate":16000,"channels":1,"format":"s16le"},"frame_ms":2000}
+{"protocol":"stt-adapter/1","audio":{"rate":16000,"channels":1,"format":"s16le"},"frame_ms":2000,"vad":true}
 ```
 Después, **frames binarios** con prefijo de longitud:
 
@@ -57,6 +57,14 @@ longitud variable** (cortes en pausas, mínimo `min_segment_ms`, tope
 `frame_ms` + `max_stretch_ms`). `frame_ms` es una cadencia objetivo, no una
 longitud garantizada: el adaptador debe aceptar cualquier N > 0, igual que ya
 hacía con el último frame.
+
+`"vad": true` (opcional, añadido en la Sesión 017) declara que **cada frame es
+un enunciado completo** y no un trozo de un stream continuo. Los adaptadores
+pueden ignorarlo (Moonshine transcribe cada frame por separado de todos modos);
+los streaming deben usarlo para no arrastrar la cola del decoder de un
+enunciado al siguiente. Cada segmento de habla incluye además **200 ms de
+silencio de cola** (tail guard) y el onset del siguiente lleva 200 ms de
+preroll; el adaptador no necesita reconstruir esos bordes.
 
 ### 2.3 Eventos (adaptador → núcleo, stdout, NDJSON)
 
@@ -82,13 +90,16 @@ Moonshine reintenta una vez un resultado vacío recortando 200 ms de cada borde
 (con tope ¼ del audio) porque el modelo emite EOS vacío en duraciones
 desafortunadas; un silencio genuino sigue devolviendo `"text":""`.
 
-Con `stt-adapter-sherpa`, `partial.text` contiene solo el tramo **nuevo** del
-segmento en curso: el texto ya confirmado por un `final` no se repite. Así los
-subtítulos no mezclan la frase anterior (acumulada en el decoder) con la
-actual. El adaptador añade además un pad de silencio al final de cada frame
-(`--frame-pad`, 0.6 s por defecto) para que el transducer streaming decodifique
-su cola de contexto derecho dentro del mismo segmento; sin él, las últimas
-palabras de una pausa se emitían con la frase siguiente.
+Con `stt-adapter-sherpa` y `"vad":true`, cada frame se decodifica en un stream
+nuevo y se le añade un pad de cola (`--segment-pad`, 1.28 s por defecto, el
+chunk del modelo) antes de finalizarlo: así el transducer completa la última
+palabra dentro de su propio `final`. `partial.text` es el texto interim de ese
+enunciado (no se repite en finales anteriores porque el stream es nuevo). Sin
+`"vad":true` (framing fijo) el adaptador mantiene un solo stream y usa
+`--frame-pad` (0.6 s); `partial.text` es entonces solo el tramo nuevo no
+cubierto por finales. Sin estos pads la cola de contexto derecho se quedaba
+pendiente y solo aparecía cuando llegaba el siguiente segmento (una palmada o
+la frase siguiente).
 
 Los consumidores (el núcleo) **deben ignorar campos desconocidos**; los
 adaptadores pueden añadir diagnóstico en `bye` sin cambiar de versión.

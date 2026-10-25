@@ -159,9 +159,13 @@ parec (micrófono) ──pipe──→ stt stream ──stdout NDJSON──→ s
    sobre hops de `hop_ms` (30 ms) y RMS vs `vad_rms_threshold`:
    - una pausa es un run de silencio ≥ 3 hops (90 ms); dips más cortos son
      cierres intra-palabra y no cortan;
-   - la pausa cierra el segmento en el último hop con voz una vez que el
-     segmento lleva `min_segment_ms` (3 s por defecto), para no fragmentar
-     frases cortas;
+   - el segmento de habla conserva **200 ms de la pausa como tail guard**
+     (y hay que esperar ese run antes de cortar): cortar en el último hop con
+     voz recortaba finales de palabra de baja energía y dejaba a los modelos
+     streaming sin contexto derecho, así que la última palabra no se
+     decodificaba hasta el segmento siguiente (Sesión 017);
+   - la pausa cierra el segmento una vez que el segmento lleva
+     `min_segment_ms` (3 s por defecto), para no fragmentar frases cortas;
    - una pausa **fuerte** (≥ 300 ms) corta siempre, aunque el segmento sea más
      corto: evita que un segmento abierto antes de un silencio largo se trague
      el silencio y el onset siguiente (regresión hallada en el experimento de
@@ -266,6 +270,7 @@ Flags equivalentes: `--config`, `--frame-ms`, `--min-segment-ms`, `--vad`,
 | **D18** | 2026-10-23 | **Bind por defecto `127.0.0.1`**, escucha en LAN sólo con `--listen`/`[server] listen` explícito; **sin TLS en v1** (túnel SSH/`adb forward` o proxy delante) | TLS con certificado autofirmado (gestión de certificados y plugins que lo rechazan); exponer `0.0.0.0` por defecto (un token en claro por LAN es el escenario peor); mDNS (se evalúa en S6.6) | Para LAN hay que optar conscientemente y usar token; el camino seguro por defecto sigue siendo loopback (`adb forward`) o SSH; documentado en OPERACION §7 |
 | **D19** | 2026-10-23 | **Una sola dependencia de WebSocket, vendorizada**: `github.com/coder/websocket` (ISC, sin dependencias transitivas, `go mod vendor`) para el servidor y el cliente de referencia | RFC 6455 a mano (~300 líneas; cero dependencias, pero fragmentation/close-handshake mal implementados son un fallo de seguridad y de interop); `gorilla/websocket` (BSD-2, más API de la necesaria) | Builds siguen pudiendo ser offline (`-mod=vendor`); hay que anotar la licencia de terceros en README al publicar; si la dependencia desaparece, el contrato §9 permite cambiar de librería sin tocar clientes |
 | **D20** | 2026-10-24 | **Supervisión por comando de sesión**: `sttd` arranca y supervisa un único comando (`--pipeline` / `[server] pipeline`; por defecto `scripts/stt-mic.sh [--engine NAME]`) cuyo stdout emite `stt-events/1`; el ciclo `idle → running → eof` se expresa sobre ese comando | `sttd` lanzando `parec` + `stt stream` como procesos propios (acopla el servidor a la captura y duplica `stt-mic.sh`); `stt-serve.sh` lanzando la captura y `sttd` leyendo un pipe (el ciclo de vida quedaría en el script, no en el servidor, y §9.5 exige que lo controle el teléfono vía `sttd`) | Los presets de motor siguen vivos en `scripts/stt-mic.sh`; demos y tests usan `--pipeline` con una fuente sintética sin tocar el servidor; si cambia la captura, `sttd` no cambia (R4/R5: aclaración compatible ya anotada en CONTRATOS §9.5) |
+| **D21** | 2026-10-24 | Los **frames con VAD son enunciados completos**: la cabecera `stt-adapter/1` lleva `"vad":true`; el core deja 200 ms de tail guard en cada segmento y `stt-adapter-sherpa` decodifica cada frame en un stream nuevo con `--segment-pad` (1.28 s, chunk del modelo) antes de emitir su `final` | mantener un único stream y alargar el pad por frame (el texto se repartía entre frames y el pad grande alucinaba palabras); pad corto de 0.6 s (la última palabra quedaba pendiente hasta el siguiente segmento); decodificar cada frame sin tail guard (se perdían finales de palabra de baja energía, p. ej. la «d» de «failed») | El enunciado termina en su propio `final` y con el `t0`/`t1` correctos, sin depender de una palmada o de la frase siguiente; con VAD off se conserva el streaming continuo de v1 (`--frame-pad` 0.6 s). Evidencia: «I have to test the model» completo sin ruido, beckett completo por segmentos, Stage 3 cobertura 100 % y Stage 5 ALL OK |
 
 ---
 

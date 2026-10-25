@@ -26,6 +26,10 @@ type Header struct {
 	Protocol string      `json:"protocol"`
 	Audio    AudioFormat `json:"audio"`
 	FrameMs  int         `json:"frame_ms"`
+	// VAD tells the adapter that every frame is a complete VAD segment (a
+	// fresh utterance) instead of a fixed slice of a continuous stream.
+	// Adapters that ignore it keep the v1 streaming behavior.
+	VAD bool `json:"vad,omitempty"`
 }
 
 // Event is a stt-adapter/1 event (adapter -> nucleus) and the base of
