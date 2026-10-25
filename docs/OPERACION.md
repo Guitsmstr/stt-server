@@ -308,3 +308,52 @@ cabecera `Authorization`, leer mensajes de texto y quedarse con los
 - El servidor no registra la query del token ni el contenido del texto.
 - Batería: una sesión de servidor mantiene el micrófono y el modelo activos
   (≈160–260 MB de RSS y CPU continua); no lo dejes corriendo sin necesidad.
+
+### 7.6 Con el corrector Laya (kroko-es + juez, post-proceso)
+
+El servidor puede llevar el **corrector estilo teclado** (`MODELOS.md` §6.4)
+como filtro dentro del comando de sesión: lo que llega al cliente ya viene
+corregido (o con las correcciones propuestas en modo dry-run). Requiere el juez
+Laya en marcha y **candidatos con descripción** (`config/candidates-es.json`).
+
+```sh
+# 1) juez Laya (una vez por arranque del dispositivo)
+sh scripts/fetch-laya.sh --skip-english          # si no está montado aún
+var/tmp/ggmlc/build/examples/laya/laya serve \
+    var/models/laya-multilingual/laya_multilingual_q8_0.gguf --port 8092 &
+
+# 2) servidor: kroko-es + corrector (config validada, MODELOS §6.4.1)
+sh scripts/stt-serve.sh --listen 0.0.0.0:4719 --show-token --engine sherpa-es \
+    --pipeline 'scripts/stt-mic.sh --engine sherpa-es | python3 -u scripts/stt-correct.py \
+        --ndjson --sources lexical-neighbour --candidates config/candidates-es.json \
+        --context 1 --per-slot --gate-p 0.7 --gate-margin 0.2 --rewrite \
+        --decisions var/tmp/laya/live_dec.ndjson'
+```
+
+- `--engine sherpa-es` de `stt-serve.sh` **solo** fija el descriptor de
+  `hello` (y activa `partials`); el motor real lo decide el `--pipeline`
+  (`stt-mic.sh --engine sherpa-es` = kroko-es; para inglés, `--engine sherpa`
+  en ambos sitios).
+- **Contexto previo**: el corrector lo toma de las `final` anteriores del mismo
+  stream (`--context 1`) — la frase anterior manda (MODELOS §6.4.1).
+- **Candidatos**: `config/candidates-es.json` — grupos de palabras similares
+  con **descripción semántica obligatoria** (sin descripción el juez falla).
+  Añade ahí tus nombres y términos. La clase de acentos/palabras funcionales
+  (`confusion-set`) queda **excluida** por `--sources` hasta el fine-tune
+  (MODELOS §7.6).
+- **Gates**: `--rewrite` solo aplica cambios con p ≥ 0.7 y margen ≥ 0.2, máx 3
+  por frase. Quita `--rewrite` para dry-run: el texto llega intacto y cada
+  `final` lleva `corrections` con lo que se habría cambiado.
+- Si el juez no está o falla, el corrector **no rompe** el pipeline: registra
+  el error en `--decisions` y deja el texto como llega.
+- Coste medido: juez 516–571 MB + kroko-es 254 MB ≈ 825 MB (cabe); ~1.5 s de
+  post-proceso por `final`; STT en tiempo real (RTF 0.49–0.52 con el juez
+  decidiendo). Decisiones crudas en `var/tmp/laya/live_dec.ndjson`.
+
+Lo que recibe el cliente (`stt-events/1` + campo extra opcional `corrections`):
+
+```json
+{"type":"final","text":"El médico revisó el informe antes de firmarlo.",
+ "t1":7.0,"model":"sherpa-zipformer-es",
+ "corrections":[{"from":"jurado","to":"médico","p":0.83,"margin":0.67}]}
+```

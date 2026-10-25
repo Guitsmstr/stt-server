@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 022: corrector + Laya probado **en el server** (`sttd` + WS). Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
-| **Última actualización** | 2026-10-25 (Sesión 022) |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 023: **kroko-es + Laya lanzado como server** para la Mac (OPERACION §7.6). Sesión 022: corrector + Laya probado en `sttd`. Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
+| **Última actualización** | 2026-10-25 (Sesión 023) |
 | **Siguiente paso** | Dos vías abiertas y medidas: (1) **generación de candidatos similares** (vecinos fonéticos/ediciones del ASR + diccionario del usuario, V4) para el modo ya validado de `stt-correct.py` (léxico + contexto previo: 100 % precisión con gate p ≥ 0.7 — MODELOS §6.4.1); (2) **fine-tune** de laya-multilingual para la clase de confusos ES (hoy 15–21 % — §6.4/§7.6). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
@@ -172,6 +172,49 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 023 — 2026-10-25
+**Alcance**: petición del usuario — lanzar **kroko-es con Laya como server**
+(estilo `./stt-serve.sh --engine x`) para conectarse desde su suite en la Mac,
+hablar y ver llegar los resultados.
+
+**Hechos (evidencia)**
+- **Receta de lanzamiento registrada en `docs/OPERACION.md` §7.6**:
+  `stt-serve.sh --listen 0.0.0.0:4719 --show-token --engine sherpa-es
+  --pipeline 'stt-mic.sh --engine sherpa-es | stt-correct.py --ndjson --sources
+  lexical-neighbour --candidates config/candidates-es.json --context 1
+  --per-slot --gate-p 0.7 --gate-margin 0.2 --rewrite'`. Nota mecánica:
+  `--engine` de `stt-serve.sh` solo fija el **descriptor** de `hello` (y
+  activa `partials` para sherpa); el motor real lo decide el `--pipeline`.
+- `config/candidates-es.json` (nuevo): 20 grupos de palabras similares ES con
+  **descripción semántica por candidato** (obligatoria, MODELOS §6.4); el
+  usuario añade ahí sus nombres y términos. La clase `confusion-set` queda
+  excluida por `--sources` hasta el fine-tune.
+- **Fixes para uso en vivo** en `scripts/stt-correct.py`: (1) leía **todo**
+  stdin hasta EOF (buffering) — ningún evento llegaba al cliente hasta cerrar
+  el micro ⇒ generador línea a línea; (2) si el juez falla/cae, no rompe el
+  pipeline (error en `--decisions`, texto sin cambios); (3) pass-through de
+  `start`/`partial`/`eof` (Sesión 022).
+- **Evidencia en vivo**: servidor levantado en `ws://0.0.0.0:4719/v1/feed`
+  (token en `var/etc/stt-token`); cliente `tests/ws_probe.py collect` →
+  `hello` con sesión adjunta (**`engine: sherpa-es`, `partials: true`**) +
+  `start`; pipeline real corriendo: PulseAudio `stt_mic_4713` →
+  `stt stream --model var/models/sherpa-zipformer-es` (kroko-es) → corrector
+  Laya → `sttd`. Juez `laya serve` (multilingüe Q8_0) en :8092.
+- Capacidad: kroko-es + laya ≈ 825 MB (medido Sesión 021); RTF 0.49–0.52 con
+  el juez decidiendo; ~1.5 s de post-proceso por `final`.
+
+**Archivos tocados**: `scripts/stt-correct.py` (stdin en streaming +
+resiliencia al juez), `config/candidates-es.json` (nuevo), `docs/OPERACION.md`
+(§7.6), `PROGRESO.md`.
+**Checks**: G1 ✅ (`py_compile`/`sh -n` OK), G2 ✅ (evidencia arriba), G3 ✅,
+G4 ✅, G6 ✅ (el servidor y el juez quedan **en marcha a petición del usuario**
+para probar desde la Mac; parado manual con los PID en `var/tmp/laya/*.pid`).
+G5 ⬜ no re-ejecutado (sin cambios de núcleo).
+**Siguiente paso**: el usuario prueba desde la Mac (hablar y ver llegar las
+`final` corregidas en su suite). Se mantienen abiertos los pendientes de la
+Sesión 021 (generación automática de candidatos, fine-tune de confusos ES,
+validación con frases de dictado).
 
 ### Sesión 022 — 2026-10-25
 **Alcance**: pregunta del usuario — ¿es posible probarlo **en el server** con

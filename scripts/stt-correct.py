@@ -326,10 +326,13 @@ def main():
 
     def feed():
         if args.text is not None:
-            return [args.text]
+            yield args.text
+            return
         f = open(args.file) if args.file else sys.stdin
-        with f:
-            return [ln.rstrip("\n") for ln in f if ln.strip()]
+        for ln in f:            # line-by-line: live streams must flow
+            ln = ln.rstrip("\n")
+            if ln.strip():
+                yield ln
 
     dec_out = open(args.decisions, "w") if args.decisions else sys.stderr
     lines = feed()
@@ -352,11 +355,17 @@ def main():
             text, ev = line, None
         ctx = " ".join(history[-args.context:]) if args.context else ""
         alt = alt_lines[n] if n < len(alt_lines) else None
-        new, slots, ms = correct(text, args.judge, args.lang, args.gate_p,
-                                 args.gate_margin, args.max_changes,
-                                 batch=not args.per_slot, flavor=args.flavor,
-                                 context=ctx, extra_groups=groups, alt_text=alt,
-                                 sources=sources)
+        try:
+            new, slots, ms = correct(text, args.judge, args.lang, args.gate_p,
+                                     args.gate_margin, args.max_changes,
+                                     batch=not args.per_slot, flavor=args.flavor,
+                                     context=ctx, extra_groups=groups,
+                                     alt_text=alt, sources=sources)
+        except Exception as e:  # judge down/slow: never kill the pipeline
+            dec_out.write(json.dumps({"error": "judge: %s" % e,
+                                     "text": text}) + "\n")
+            dec_out.flush()
+            new, slots, ms = text, [], 0.0
         for i, sl in enumerate(slots):
             dec_out.write(json.dumps({
                 "slot": i, "word": sl["word"], "candidates": sl["probs"],
