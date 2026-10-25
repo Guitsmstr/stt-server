@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 017: corrección post-cierre de la pérdida de la última palabra con sherpa (Stage 3/5, D21) |
-| **Última actualización** | 2026-10-24 (Sesión 017) |
-| **Siguiente paso** | Sin stage definido: Stage 7 (clientes envían audio) sólo si el uso lo pide. El trabajo pendiente de GitHub (LICENSE, identidad git) sigue **congelado por decisión del usuario**. |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 018: evaluación de modelos — whisper-small (adaptador offline) + LLM local Qwen3-1.7B; registro en [`docs/MODELOS.md`](docs/MODELOS.md) |
+| **Última actualización** | 2026-10-25 (Sesión 018) |
+| **Siguiente paso** | Prototipo de corrector estilo teclado (canal ruidoso) con **Laya** como juez calibrado + test de selección n-best con ~20–30 frases del usuario — ver [`docs/MODELOS.md`](docs/MODELOS.md) §6.1–§6.2 y §7. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
 
@@ -172,6 +172,67 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 018 — 2026-10-25
+**Alcance**: (a) auditoría de seguridad del dispositivo y del repo (pedida por
+el usuario); (b) evaluación de modelos para entender/cerrar el gap de
+precisión de `kroko-es` reportado por el usuario: adaptador whisper-small,
+LLM local Qwen3-1.7B y experimentos de corrección/selección. Registro
+completo y reproducible en [`docs/MODELOS.md`](docs/MODELOS.md).
+
+**Cambios**
+- `docs/SEGURIDAD.md` (nuevo): auditoría del teléfono (Galaxy A22, Android 13,
+  root Magisk) + del proyecto, gaps **G-01…G-12** con evidencia y plan de
+  cierre, y reglas operativas §7; enlaces en README y OPERACION §7.2
+  (commit `1a2c7a3`).
+- `adapters/whisper/` (nuevo): `stt-adapter-whisper` — adaptador offline
+  sherpa-onnx (contrato `stt-adapter/1`, capability `final`, un final por
+  frame; `--language/--task/--tail-paddings`; auto-detección int8). Build
+  limpio `-Wall -Wextra`.
+- `scripts/fetch-model.sh --model whisper-small` (sha256 pinneado,
+  `csukuangfj/sherpa-onnx-whisper-small` int8, 375 MB);
+  `scripts/stt-mic.sh --engine whisper`; `Makefile` (adapters/clean).
+- `scripts/fetch-llm.sh` (nuevo): llama.cpp **v0.7.0** pinneado
+  (`620d2225…`) + `Qwen3-1.7B-Q4_K_M` (sha256 pinneado, 1.11 GB) + aviso de
+  ajustes seguros por el incidente de memoria (abajo).
+
+**Evidencia** (detalle y comandos en `docs/MODELOS.md` §3–§6)
+- whisper-small en el dispositivo: RSS 758 MB, RTF 1.55–1.65, carga 6.5–7.2 s.
+  EN contexto completo: **0 % WER** (beckett); ES (clip Kennedy):
+  **≈16–21 % WER vs kroko-es ≈5 %** ⇒ kroko-es sigue siendo el mejor motor
+  ES pese a ser más pequeño (perfil de error y cuantización int8 de Whisper).
+- Qwen3-1.7B como corrector: 7 tests con 2 prompts (32–95 s/corrección) ⇒
+  **no fiable semánticamente**: cambia palabras correctas («No preguntas»,
+  «Feel better», quitar «tú») y no detecta errores reales («si»→«qué»,
+  «fell»→«fail»). El prompt con ejemplo few-shot + «solo texto» lo vuelve
+  conservador (copia todo) pero tampoco acierta ⇒ no integrar como corrector
+  automático; útil sólo para puntuación/casing.
+- **Primer dato positivo (juez n-best, MODELOS §6)**: dadas las hipótesis de
+  kroko-es y whisper-small, el juez eligió la mejor en **32 s** sin inventar
+  ⇒ vía abierta: apilar motores con errores complementarios y seleccionar.
+
+**Incidente (registrado)**: kernel panic por OOM al cargar el GGUF de 1.1 GB
+con page cache caliente y zram saturado (`bootreason=kernel_panic`; pstore
+`console-ramoops`: OOM en `f2fs filemap fault` bajo `llama-cli`). Ajustes
+seguros verificados (`echo 3 > /proc/sys/vm/drop_caches` + `-t 2 -c 2048`):
+RAM mínima 728 MB libre durante la carga. Ver MODELOS §5 y la cabecera de
+`scripts/fetch-llm.sh`.
+
+**Archivos tocados**: `docs/{MODELOS,SEGURIDAD,OPERACION}.md`, `README.md`,
+`adapters/whisper/{whisper.cc,Makefile}`, `scripts/{fetch-model.sh,
+fetch-llm.sh,stt-mic.sh}`, `Makefile`.
+**Checks**: G1 ✅ (build Go/C++ limpio; whisper.cc sin warnings), G2 ✅
+(evidencia arriba), G4 ✅ (docs actualizadas: MODELOS, SEGURIDAD, README,
+OPERACION), G6 ✅ (artefactos temporales sólo en `var/tmp/`). G3/G5 ⬜ no
+re-ejecutados (sin cambios de núcleo; las suites de stages no cubren los
+nuevos artefactos).
+**Siguiente paso**: prototipo de corrector estilo teclado (canal ruidoso,
+`docs/MODELOS.md` §6.2) con **Laya** como juez de primera línea (33 ms,
+probabilidades calibradas, no genera texto ⇒ no alucina) y Qwen como árbitro
+de respaldo; variables del experimento registradas en §6.1 (V1 motores,
+V2 juez, V3 estrategia, V4 candidatos). Validación: los casos que fallaron
+hoy («si»→«qué», «fell»→«fail», «quien por»→«tú por») + test n-best con
+~20–30 frases de dictado del usuario.
 
 ### Sesión 017 — 2026-10-24
 **Alcance**: corregir la pérdida de la última palabra con `stt-adapter-sherpa`
