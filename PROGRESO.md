@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 018: evaluación de modelos — whisper-small (adaptador offline) + LLM local Qwen3-1.7B; registro en [`docs/MODELOS.md`](docs/MODELOS.md) |
-| **Última actualización** | 2026-10-25 (Sesión 018) |
-| **Siguiente paso** | Prototipo de corrector estilo teclado (canal ruidoso) con **Laya** como juez calibrado + test de selección n-best con ~20–30 frases del usuario — ver [`docs/MODELOS.md`](docs/MODELOS.md) §6.1–§6.2 y §7. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 019: Laya montado y medido (runtime + capacidad + juez ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.3. Sesión 018: whisper-small + LLM local Qwen3-1.7B. |
+| **Última actualización** | 2026-10-25 (Sesión 019) |
+| **Siguiente paso** | Prototipo de corrector estilo teclado (canal ruidoso) con **Laya** como juez: runtime ya probado (`laya serve` + laya-multilingual Q8_0, `scripts/fetch-laya.sh`); falta montar candidatos V4 + gates y validar con ~20–30 frases del usuario — [`docs/MODELOS.md`](docs/MODELOS.md) §6.2–§6.3 y §7. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
 
@@ -172,6 +172,73 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 019 — 2026-10-25
+**Alcance**: revisión de la implementación pendiente con **Laya** (corrector
+estilo teclado, `docs/MODELOS.md` §6.2) y respuesta a las dos preguntas del
+usuario: (1) ¿da la capacidad del dispositivo para correr **a la vez** el
+modelo STT y Laya? (2) enfoque en **español**. Sesión de evaluación + montaje
+del runtime del juez; sin cambios de núcleo ni de contratos.
+
+**Hechos (evidencia)**
+- **Runtime real de Laya** (corrige `MODELOS.md` §6.1): `pip install laya`
+  **bloqueado** en musl — `torch` es dependencia dura del paquete (también con
+  `laya[onnx]`); verificado: `pip3 install --dry-run --break-system-packages
+  torch` → `No matching distribution found for torch`. `ggml-org/Laya-GGUF`
+  (inglés) sí corre **nativo** en el llama.cpp v0.7.0 ya construido
+  (`llama-server` → "decision model type: laya", `POST /v1/systemone`). El
+  **multilingüe** (`mys/laya-multilingual-GGUF`) es GGUF **ggmlc**, no de
+  llama.cpp ⇒ runtime = CLI `laya` de `monatis/ggmlc` **v0.9.7 construido en
+  este dispositivo** (ggml vendored, sin LLVM/MLIR; parche musl: falta
+  `#include <sys/time.h>` en `examples/laya/src/server.cpp` — error de
+  compilación reproducido: `aggregate 'timeval tv' has incomplete type`).
+  Alternativa `Weidows/laya-multilingual-GGUF` (sí es llama.cpp) descartada:
+  la cabeza de decisión viaja aparte y exige tokenización Gemma externa +
+  torch ⇒ bloqueada en musl.
+- **Capacidad: SÍ caben ambos modelos a la vez** (pregunta del usuario).
+  kroko-es (254 MB RSS) + `laya serve` multilingüe Q8_0 (516–571 MB) = **~825
+  MB** contra 1.7–2.2 GB disponibles. STT: RTF 0.217–0.249 con el juez
+  **idle** (línea base 0.229 — sin penalización) y **0.49–0.52 con el juez
+  decidiendo** (sigue en tiempo real, RTF < 1). Juez: 1.1–1.5 s/decisión idle
+  → 1.6–2.5 s bajo carga STT (p95 2.53 s). Con el Laya inglés vía
+  `llama-server`: 865 MB RSS (444 clean + 412 anon) + 254 MB = 1.12 GB,
+  decisiones 1.4–2.4 s. **Límite**: whisper-small (758 MB) no puede convivir
+  residente con el juez (1.6 GB+ ⇒ zona del incidente de memoria, MODELOS §5)
+  ⇒ el segundo motor del n-best (MODELOS §7.2) corre **en secuencia**.
+- **Juez en español** (los casos que fallaron, MODELOS §5.1; probe
+  `tests/laya_probe.py`, 5 repeticiones por caso): el checkpoint **inglés
+  decide al azar en ES** (conf 0.12–0.16; el ganador cambia con el prompt:
+  «si»/«que»/«qué») ⇒ no sirve como juez léxico ES (confirma el aviso
+  upstream: "does not degrade gracefully off English"). **laya-multilingual
+  Q8_0**: routing semántico ES ✅ (p=1.00), urgencia ES ✅ (2.75/3 vs 1.39 del
+  inglés), «qué» vs que/si/sí ✅ p 0.44–0.54 **solo con descripciones en
+  `criteria`** (sin ellas falla: «sí» 0.38), caso duro «tú» vs «quién» ❌ (0.49
+  vs 0.11, con contexto y descripciones) ⇒ cero-shot confirma lo obvio y
+  descarta basura, pero no corrige confusos pragmáticos (vía: fine-tune +
+  confianza acústica + diccionario personal). Nota: `confidence` **no** es
+  comparable entre runtimes (0.04–0.15 con ganador claro) ⇒ umbrales sobre
+  `probabilities` (p del ganador + margen).
+- **Montaje reproducible**: `scripts/fetch-laya.sh` (sha256 pinneados y
+  verificados contra los LFS oid de HF: ggmlc v0.9.7 `2081c3fc…`,
+  `laya_multilingual_q8_0.gguf` `757c1a4b…`, `Laya-Q8_0.gguf` `c06528c5…`;
+  build del CLI + parche musl incluidos) y probes `tests/laya_probe.py` /
+  `tests/laya_coexist.py`. Lecturas de diseño para el prototipo (criteria con
+  descripción, gates por p+margen, ≤3 decisiones por frase, juez en
+  post-proceso, batching) registradas en `MODELOS.md` §6.3.
+
+**Archivos tocados**: `scripts/fetch-laya.sh` (nuevo), `tests/laya_probe.py`,
+`tests/laya_coexist.py` (nuevos), `docs/MODELOS.md` (§6.1 corregida, §6.3
+nueva, §7/§8 actualizados), `PROGRESO.md`.
+**Checks**: G1 ✅ (sin cambios de núcleo ni adaptadores; `sh -n
+scripts/fetch-laya.sh` y `python3 -m py_compile` de los probes OK), G2 ✅
+(evidencia arriba), G3 ✅ (docs sincronizadas), G4 ✅ (esta bitácora), G6 ✅
+(artefactos y descargas solo en `var/`). G5 ⬜ no re-ejecutado (no hay cambios
+en el pipeline; las suites de stages no cubren estos artefactos).
+**Siguiente paso**: montar el prototipo de corrector estilo teclado sobre el
+runtime ya probado (`MODELOS.md` §7.1): candidatos V4 con descripciones en
+`criteria`, gates p ≥ 0.6 / margen ≥ 0.3, máx 3 cambios por frase, juez en
+post-proceso; validar con ~20–30 frases de dictado del usuario. Los casos
+duros («tú» vs «quién») quedan para fine-tune (§7.6).
 
 ### Sesión 018 — 2026-10-25
 **Alcance**: (a) auditoría de seguridad del dispositivo y del repo (pedida por

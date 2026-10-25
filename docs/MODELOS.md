@@ -5,11 +5,13 @@ reales, experimentos de precisión, incidentes y líneas abiertas. Objetivo:
 que cualquier sesión o agente pueda retomar el trabajo de evaluación de
 modelos sin contexto previo (reglas R1/R2).
 
-> **Estado (2026-10-25, Sesión 018)**: whisper-small montado como engine
-> offline; LLM local (Qwen3-1.7B) montado y evaluado; **veredicto**: el LLM
-> NO sirve como corrector semántico en esta clase de tamaño, SÍ como juez
-> selector entre hipótesis (primer dato positivo registrado §6). Gap de
-> precisión ES de kroko confirmado por el usuario.
+> **Estado (2026-10-25, Sesión 019)**: Laya montado y medido en el dispositivo
+> (runtime real + convivencia con el STT + calidad como juez **español**) — ver
+> §6.3. Sesión 018: whisper-small montado como engine offline; LLM local
+> (Qwen3-1.7B) montado y evaluado; **veredicto**: el LLM NO sirve como corrector
+> semántico en esta clase de tamaño, SÍ como juez selector entre hipótesis
+> (primer dato positivo registrado §6). Gap de precisión ES de kroko
+> confirmado por el usuario.
 
 ---
 
@@ -155,8 +157,8 @@ Candidatos registrados (2026-10-25):
 | Juez | Disco | Velocidad/decisión | Estilo | Notas |
 |---|---|---|---|---|
 | Qwen3-1.7B Q4_K_M (actual) | 1.11 GB | ~32 s | generativo | acierta como selector; alucina como generador |
-| **Laya** (`ggml-org/Laya-GGUF` Q8_0) | 0.45 GB | **~33 ms** (1 forward pass) | **decisión calibrada, no autoregresivo** | multilingüe 100+ idiomas, Apache-2.0; no genera texto ⇒ **no puede alucinar**; `pip install laya[onnx]` (musl: sin torch; alternativa GGUF vía llama.cpp) |
-| **Laya-multilingual** (`mys/laya-multilingual-GGUF`) | 0.36 GB (q8) / 0.52 GB (q4) | ~33 ms (corto) | ídem | hasta 8192 tokens de contexto; routing automático por idioma |
+| **Laya** (`ggml-org/Laya-GGUF` Q8_0) | 0.45 GB | **~33 ms** (1 forward pass) | **decisión calibrada, no autoregresivo** | ModernBERT-large (inglés); multilingüe 100+ idiomas declarado, Apache-2.0; no genera texto ⇒ **no puede alucinar**; runtime en este dispositivo: llama.cpp `/v1/systemone` ✅ medido (§6.3); `pip install laya` **bloqueado** en musl (torch es dependencia dura) |
+| **Laya-multilingual** (`mys/laya-multilingual-GGUF`) | 0.36 GB (q8) / 0.52 GB (q4) | ~33 ms (corto) | ídem | mmBERT-base 322M, hasta 8192 tokens de contexto; routing automático por idioma; GGUF **ggmlc** (no es GGUF de llama.cpp) ⇒ requiere CLI `laya` de `monatis/ggmlc` ✅ medido (§6.3); el que necesita el **español** |
 | (respaldo) gemma-3-1b-it QAT / Llama-3.2-1B | 1.0 / 0.81 GB | ~30 s | generativo | alternativas si Qwen no convence |
 
 Laya expone `Router.predict(state, questions)` con preguntas tipadas:
@@ -213,31 +215,114 @@ sobre un espacio acotado, justo lo que le faltó a Qwen como generador
 - **Feedback**: aceptar/rechazar correcciones ⇒ diccionario personal crece
   (personalización continua, como el teclado).
 
+### 6.3 Laya en el dispositivo — medido (2026-10-25, Sesión 019)
+
+**Runtime real** (correcciones a §6.1):
+- `pip install laya` **no es viable aquí**: `torch` es dependencia dura del
+  paquete (también con `laya[onnx]`) y no hay wheels musl aarch64 ⇒
+  `No matching distribution found for torch` (verificado con
+  `pip3 install --dry-run --break-system-packages torch`).
+- `ggml-org/Laya-GGUF` (inglés) **corre nativo en el llama.cpp v0.7.0 ya
+  construido**: el server lo reconoce como decision model (`decision type:
+  laya`) y sirve `POST /v1/systemone` sin nada más.
+- El **multilingüe es el que necesita el español**, y su GGUF (`mys`) es
+  formato **ggmlc**: no lo carga llama.cpp. Runtime = CLI `laya` de
+  `monatis/ggmlc` **construido desde fuente en este dispositivo** (v0.9.7,
+  ggml vendored, sin LLVM/MLIR; parche musl: falta `#include <sys/time.h>` en
+  `examples/laya/src/server.cpp`). `scripts/fetch-laya.sh` reproduce todo
+  (sha256 pinneados: ggmlc tarball, los dos GGUF).
+- Alternativa descartada: `Weidows/laya-multilingual-GGUF` (sí es GGUF de
+  llama.cpp) pero la cabeza de decisión viaja aparte
+  (`laya-multilingual-head.safetensors`) y exige tokenización externa (Gemma
+  BPE) + torch ⇒ bloqueada en musl.
+
+**Mediciones** (Galaxy A22; probes `tests/laya_probe.py` y
+`tests/laya_coexist.py`; clip ES `var/tmp/es16k.wav` 5.33 s con kroko-es):
+
+| Configuración | Carga | RSS | Latencia decisión | STT RTF |
+|---|---|---|---|---|
+| `llama-server` + Laya Q8_0 (inglés, `-t 4 -c 512`) | 3.3 s | **865 MB** (444 clean + 412 anon) | 1.4–2.4 s | — |
+| `laya serve` + laya-multilingual Q8_0 (CPU) | ~1 s | **516–571 MB** | 1.1–1.5 s idle | — |
+| kroko-es solo (línea base) | 17 s | 254 MB | — | 0.22–0.25 |
+| kroko-es + laya-multilingual, juez **activo** | — | 825 MB combinados | 1.6–2.5 s | **0.49–0.52** |
+| kroko-es + Laya Q8_0 (llama), juez activo | — | 1.12 GB combinados | 2.6 s med / 3.5 s p95 | 0.42 |
+
+**Capacidad: sí caben STT + juez a la vez.** Con el juez idle no hay
+penalización (RTF 0.217–0.249 vs 0.229 de base) y mientras decide el STT se
+ralentiza ~2× pero sigue en **tiempo real** (RTF < 1). Contra 1.7–2.2 GB
+disponibles, kroko-es + laya-multilingual (≈825 MB) tiene margen holgado; con
+el Laya inglés (≈1.12 GB) el margen encoge. **No** meter además whisper-small
+(758 MB) residente a la vez: 1.6 GB+ ⇒ zona del incidente §5 ⇒ el segundo
+motor del n-best (§7.2) corre **en secuencia**, no residente.
+
+**Calidad como juez en español** (los casos que fallaron, §5.1):
+
+| Caso | Laya Q8_0 (inglés) | laya-multilingual Q8_0 |
+|---|---|---|
+| «qué» vs que/si/sí (con descripciones en `criteria`) | ❌ azar (conf 0.15, gana «si») | ✅ «qué» p 0.44–0.54 (0.70 con pista gramatical) |
+| «tú» vs tu/quién/el (caso real de whisper) | ❌ azar (conf 0.13, gana «quién») | ❌ «quién» 0.49 vs «tú» 0.11 |
+| routing semántico ES (facturación/técnico/otro) | ⚠️ 0.885 | ✅ **1.00** |
+| urgencia ES (score 0–3; verdad ≈3) | ❌ 1.39 | ✅ 2.75 |
+| control EN «fail» vs fell/feel | ✅ 0.94 | ✅ 0.47 (margen corto) |
+
+Lecturas para el corrector:
+1. **El checkpoint inglés no sirve para español**: sus decisiones léxicas ES
+   están al azar (conf 0.12–0.16; el ganador cambia con el prompt) — confirma
+   el aviso upstream ("does not degrade gracefully off English"). Sirve solo
+   para gates semánticos gruesos. ⇒ juez ES = **laya-multilingual**.
+2. **Las descripciones de `criteria` son obligatorias**: sin ellas el
+   multilingüe falla lo que con descripciones acierta («sí» 0.38 vs «qué»
+   0.54). Van en el prompt, no son decoración.
+3. **Cero-shot no arregla los casos duros** («tú» vs «quién»): el juez descarta
+   basura y confirma lo obvio, pero no corrige confusos pragmáticos sin
+   fine-tune (upstream: 0.362 → 0.766 con fine-tune) ni sin señales extra
+   (confianza acústica, diccionario personal del usuario).
+4. **Umbral sobre `probabilities`, no sobre `confidence`**: los dos runtimes
+   calculan `confidence` distinto (el de llama queda en 0.04–0.15 aun cuando
+   el ganador es claro). La probabilidad del ganador + el margen sobre el
+   segundo son la señal de umbral (p. ej. aceptar solo con p ≥ 0.6 y margen
+   ≥ 0.3).
+5. **Operación**: juez en **post-proceso** (§7.2), nunca en el hot path;
+   presupuesto de ≤ 3 decisiones por frase; `laya` agrupa preguntas en batches
+   (`max_batch=8`) y ofrece `/v1/decide/batch` (hasta 256 estados con las
+   mismas preguntas) — mejor que llama.cpp (una pregunta = un forward) para
+   juzgar varias palabras por frase.
+
 ## 7. Líneas abiertas / siguiente paso
 
 1. **Prototipo de corrector estilo teclado (§6.2) con Laya como juez (V2)**:
-   instalar `laya[onnx]` (musl: sin torch) o usar el GGUF; montar candidatos
-   V4 (confusion sets ES + desacuerdo de motores) y validar sobre los casos
-   que fallaron hoy («si»→«qué», «fell»→«fail», «quien por»→«tú por»).
+   runtime ya resuelto (§6.3): `laya serve` con **laya-multilingual Q8_0**
+   (`scripts/fetch-laya.sh`); `pip install laya` descartado en musl. Montar
+   candidatos V4 (confusion sets ES + desacuerdo de motores) con
+   **descripciones en `criteria`** (obligatorio, §6.3 lectura 2) y validar
+   sobre los casos que fallaron hoy («si»→«qué», «fell»→«fail»,
+   «quien por»→«tú por»). Gates: p ≥ 0.6 y margen ≥ 0.3, máx 3 cambios por
+   frase. Esperado: el juez confirma/descarta; los casos duros («tú») quedan
+   para fine-tune (ítem 6).
 2. **Test de selección completo** (aceptado por el usuario): kroko-es
    (en vivo, rápido) + **whisper-small** como segundo motor **en post-proceso**
    — su lentitud (RTF 1.55) no molesta offline: una sesión de 20 min se
-   re-transcribe en ~31 min. Alternativa más rápida si se quiere el segundo
-   motor "en caliente": **whisper-tiny** (RTF ~0.3–0.5, errores
-   complementarios, aún sin implementar). Juez: Qwen3-1.7B (32 s por
-   decisión). Validar con ~20–30 frases de dictado del usuario y calcular
+   re-transcribe en ~31 min. **En secuencia, no residente junto al juez**
+   (§6.3: memoria). Alternativa más rápida si se quiere el segundo motor "en
+   caliente": **whisper-tiny** (RTF ~0.3–0.5, errores complementarios, aún sin
+   implementar). Validar con ~20–30 frases de dictado del usuario y calcular
    WER: kroko-es vs whisper-small vs juez.
-2. **¿Acelera con más potencia?** Sí: el RTF de Whisper está limitado por
+3. **¿Acelera con más potencia?** Sí: el RTF de Whisper está limitado por
    cómputo (no por RAM); escala casi linealmente con CPU/bandwidth. En un
    portátil/mini-PC actual whisper-small corre a RTF 0.05–0.15 (≈ tiempo
    real) e incluso large-v3 es viable. En un teléfono mejor la ganancia
    existe pero el límite térmico la recorta rápido. ⇒ si whisper-small debe
    ser rápido, la vía es **opción B del PLAN**: el teléfono captura, la Mac
    transcribe (STT + juez en la Mac; kroko/quedan como fallback local).
-3. Evaluar whisper-small **fp32** (970 MB, cabe justo) para aislar el efecto
+4. Evaluar whisper-small **fp32** (970 MB, cabe justo) para aislar el efecto
    de la cuantización int8 en el WER ES.
-4. Whisper base/tiny como tercer motor barato si el juez necesita más votos.
-5. Cuantizar kroko-es a int8 (hoy float): −100 MB RSS, mejor RTF, misma
+5. Whisper base/tiny como tercer motor barato si el juez necesita más votos.
+6. **Fine-tune de laya-multilingual sobre nuestros confusos ES** (la vía real
+   para «tú» vs «quién»): upstream mide 0.362 → 0.766 en typed-decisions con
+   fine-tune; dataset = frases de dictado del usuario + confusion sets. Se
+   entrena fuera del teléfono (el notebook upstream usa Kaggle 2×T4) y el
+   resultado se sirve igual con `laya serve`.
+7. Cuantizar kroko-es a int8 (hoy float): −100 MB RSS, mejor RTF, misma
    precisión nominal.
 
 ## 8. Cómo reproducir
@@ -248,6 +333,14 @@ sh scripts/fetch-model.sh --model whisper-small   # 375 MB, sha256 pinneado
 make adapters
 ./var/bin/stt once --config var/tmp/whisper-es.toml --vad=false --frame-ms 30000 clip.wav
 ./scripts/stt-serve.sh --engine whisper           # servidor (lento, eval)
+
+# juez Laya (Sesión 019; ver §6.3)
+sh scripts/fetch-laya.sh                          # ggmlc v0.9.7 + laya CLI + 2 GGUF
+var/tmp/ggmlc/build/examples/laya/laya serve \
+    var/models/laya-multilingual/laya_multilingual_q8_0.gguf --port 8092 --device cpu
+python3 tests/laya_probe.py --url http://127.0.0.1:8092   # casos ES/EN
+python3 tests/laya_coexist.py --url http://127.0.0.1:8092 \
+    --stt-cmd './var/bin/stt once --adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-es clip.wav'
 
 # LLM local (ajustes seguros por el incidente §5)
 sh scripts/fetch-llm.sh                           # llama.cpp v0.7.0 + Qwen3-1.7B
