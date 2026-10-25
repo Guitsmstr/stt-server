@@ -37,7 +37,7 @@ servidor: [`docs/CONTRATOS.md`](docs/CONTRATOS.md) §9.
 5. [`docs/CONTRATOS.md`](docs/CONTRATOS.md) — especificación de interfaces (la verdad del sistema)
 6. [`docs/OPERACION.md`](docs/OPERACION.md) — micrófono real (setup, `stt-captions`, `--out`) y **servidor remoto** §7 (Stage 6)
 7. [`docs/PREREQUISITOS.md`](docs/PREREQUISITOS.md) — toolchain, hardware, assets
-8. [`docs/GLOSARIO.md`](docs/GLOSARIO.md) — siglas y abreviaturas (STT, VAD, RTF, RSS, NDJSON, S5.8, D15, `stt-remote/1`, …)
+9. [`docs/GLOSARIO.md`](docs/GLOSARIO.md) — siglas y abreviaturas (STT, VAD, RTF, RSS, NDJSON, S5.8, D15, `stt-remote/1`, …)
 
 ## 🗂️ Estructura
 

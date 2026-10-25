@@ -253,6 +253,10 @@ demos y pruebas sin micrófono (S6.3/S6.6 lo usan con fuentes sintéticas).
 
 ### 7.2 Conectar desde el Mac (de más a menos seguro)
 
+> **Seguridad**: reglas de exposición de red: solo loopback o túnel cifrado
+> (SSH / `adb forward`). El caso 3 (LAN directa) está **desaconsejado**
+> sin cifrado (WS sin TLS).
+
 ```sh
 # 1. por USB, sin exponer nada: reenvío de puerto de adb
 adb forward tcp:4719 tcp:4719
