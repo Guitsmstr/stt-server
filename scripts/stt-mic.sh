@@ -12,7 +12,8 @@
 #
 # --engine NAME expands to the adapter/model pair of a known engine
 # (moonshine = config default; sherpa = kroko EN 2025 zipformer, --partials on;
-# sherpa-es = kroko es; sherpa-en-2023 = legacy int8 zipformer). Anything after
+# sherpa-es = kroko es; sherpa-en-2023 = legacy int8 zipformer; whisper =
+# whisper-small offline, accuracy eval only — finals only, RTF > 1). Anything after
 # `--` goes verbatim to `stt stream` and wins over the preset (Go flags: last
 # one wins), e.g. `--engine sherpa -- --partials=false`. With no --engine and
 # no explicit --adapter, config/stt.toml decides.
@@ -88,8 +89,9 @@ case "${ENGINE:-}" in
     sherpa-en-2023)
                ENGINE_ARGS="--adapter adapters/sherpa/stt-adapter-sherpa --model var/models/sherpa-zipformer-en"
                case " $* " in *" --partials"*) ;; *) ENGINE_ARGS="$ENGINE_ARGS --partials" ;; esac ;;
+    whisper)   ENGINE_ARGS="--adapter adapters/whisper/stt-adapter-whisper --model var/models/whisper-small" ;;
     echo)      ENGINE_ARGS="--adapter adapters/echo/stt-adapter-echo" ;;
-    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|sherpa-es|sherpa-en-2023|echo)" >&2; exit 2 ;;
+    *)         echo "stt-mic: unknown engine: $ENGINE (moonshine|sherpa|sherpa-es|sherpa-en-2023|whisper|echo)" >&2; exit 2 ;;
 esac
 
 # --check/--list are capture-only shortcuts.

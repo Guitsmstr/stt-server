@@ -23,7 +23,7 @@
 # again, so a second run works with --offline and does not touch the network.
 #
 # Usage:
-#   scripts/fetch-model.sh [--model tiny|kroko-en|kroko-es|zipformer-en]
+#   scripts/fetch-model.sh [--model tiny|kroko-en|kroko-es|zipformer-en|whisper-small]
 #                          [--dest DIR] [--offline]
 #
 # Assets (moonshine tiny): https://huggingface.co/moonshine-ai/moonshine
@@ -52,8 +52,9 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$MODEL" != "tiny" ] && [ "$MODEL" != "kroko-en" ] && \
-   [ "$MODEL" != "kroko-es" ] && [ "$MODEL" != "zipformer-en" ]; then
-    echo "fetch-model: unknown model '$MODEL' (tiny|kroko-en|kroko-es|zipformer-en)" >&2
+   [ "$MODEL" != "kroko-es" ] && [ "$MODEL" != "zipformer-en" ] && \
+   [ "$MODEL" != "whisper-small" ]; then
+    echo "fetch-model: unknown model '$MODEL' (tiny|kroko-en|kroko-es|zipformer-en|whisper-small)" >&2
     exit 2
 fi
 
@@ -62,6 +63,7 @@ case $MODEL in
     kroko-en)     DEST=${DEST:-$ROOT/var/models/sherpa-zipformer-en-kroko} ;;
     kroko-es)     DEST=${DEST:-$ROOT/var/models/sherpa-zipformer-es} ;;
     zipformer-en) DEST=${DEST:-$ROOT/var/models/sherpa-zipformer-en} ;;
+    whisper-small) DEST=${DEST:-$ROOT/var/models/whisper-small} ;;
 esac
 mkdir -p "$DEST"
 
@@ -170,6 +172,18 @@ elif [ "$MODEL" = "zipformer-en" ]; then
         d944208d660d67c8d72cd2acaeac971fa5ceb8c80e76c1968148846fedd6e297 259335
     download "$BASE_URL/tokens.txt" tokens.txt \
         49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb 5048
+elif [ "$MODEL" = "whisper-small" ]; then
+    # whisper small multilingual, sherpa-onnx int8 export (accuracy evaluation
+    # / offline second pass; NOT a live engine — RTF > 1 on this device).
+    # sha256 pinned from csukuangfj/sherpa-onnx-whisper-small; verified
+    # 2026-10-25 against the files used in the whisper accuracy eval.
+    BASE_URL="https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/main"
+    download "$BASE_URL/small-encoder.int8.onnx" small-encoder.int8.onnx \
+        4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9 112442483
+    download "$BASE_URL/small-decoder.int8.onnx" small-decoder.int8.onnx \
+        acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee 262226114
+    download "$BASE_URL/small-tokens.txt" small-tokens.txt \
+        b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126 816730
 fi
 
 echo "model ready: $DEST"

@@ -9,6 +9,7 @@ adapters:
 	$(MAKE) -C adapters/echo
 	$(MAKE) -C adapters/moonshine
 	$(MAKE) -C adapters/sherpa
+	$(MAKE) -C adapters/whisper
 
 models:
 	sh scripts/fetch-model.sh
@@ -44,3 +45,4 @@ clean:
 	$(MAKE) -C adapters/echo clean
 	$(MAKE) -C adapters/moonshine clean
 	$(MAKE) -C adapters/sherpa clean
+	$(MAKE) -C adapters/whisper clean
