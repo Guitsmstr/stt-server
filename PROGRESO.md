@@ -194,6 +194,10 @@ dejar escrito el comando de arranque con Laya.
 lanzador la automatiza sin cambiarla).
 **Siguiente paso**: usuario lanza `sh scripts/stt-serve-laya.sh` cuando quiera
 probar desde la Mac. Pendientes de Sesión 021 sin cambios.
+**Nota posterior (mismo día)**: el usuario pidió **kroko-es solo, sin Laya** ⇒
+servidor relanzado con la receta estándar `scripts/stt-serve.sh --listen
+0.0.0.0:4719 --show-token --engine sherpa-es` (OPERACION §7.1; sin corrector ni
+juez). Verificado: `hello` con `engine: sherpa-es, partials: true` + `start`.
 
 ### Sesión 023 — 2026-10-25
 **Alcance**: petición del usuario — lanzar **kroko-es con Laya como server**
