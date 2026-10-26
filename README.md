@@ -123,21 +123,27 @@ sh scripts/fetch-model.sh --model whisper-small   # ~375 MB, sha256 pineado
 # …o reenvío en tiempo real de un WAV (misma interfaz, sin micrófono)
 ./scripts/stt-mic-local.sh --engine whisper --wav tests/assets/beckett.wav
 
-# servidor WebSocket stt-remote/1 (token en var/etc/stt-token).
-# --engine whisper tras `--` solo fija el descriptor hello.session.engine:
-# el comando de sesión sigue siendo el --pipeline literal.
-./scripts/stt-serve.sh --listen 127.0.0.1:4720 \
+# servidor WebSocket stt-remote/1 en el puerto por defecto del contrato
+# (token en var/etc/stt-token). --engine whisper tras `--` solo fija el
+# descriptor hello.session.engine; el comando de sesión es el --pipeline literal.
+./scripts/stt-serve.sh \
     --pipeline 'scripts/stt-mic-local.sh --engine whisper' -- --engine whisper
 ```
 
-Conectar el cliente [`stt-tui`](../stt_server_test) **desde este directorio**
-(así autodescubre `var/etc/stt-token`):
+Conectar el cliente [`stt-tui`](../stt_server_test):
 
 ```sh
-STT_NO_ADB=1 STT_WS_URL=ws://127.0.0.1:4720/v1/feed ../stt_server_test/stt-tui
+../stt_server_test/stt-tui
 ```
 
-- `STT_NO_ADB=1` impide que el cliente monte el `adb forward` del teléfono.
+- La fuente de conexión se cambia desde la propia TUI: la opción **Use phone
+  (adb) / Use local server** de la columna izquierda (tecla `s`, o el comando
+  `adb [on|off]`) re-descubre al instante; `save` guarda la elección como
+  `no_adb` en `.stt-tui.json`. `STT_NO_ADB=1` y `--no-adb` solo siembran el
+  estado inicial.
+- Con un `.stt-tui.json` que lleve `url` + `token` + `no_adb` (se crea con
+  `save`), la TUI conecta sola desde cualquier directorio. Sin config,
+  lanzarla desde este directorio para que autodescubra `var/etc/stt-token`.
 - Whisper es offline (solo `final`, sin parciales). En `stt-tui`, el modo
   `onlyTranscript final` (`Ctrl+T` dos veces) muestra el documento final
   creciendo en vivo; `copy` lo pone en el portapapeles.
