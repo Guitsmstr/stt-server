@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 024: lanzador `stt-serve-laya.sh` (un comando). Sesión 023: kroko-es + Laya como server para la Mac (OPERACION §7.6). Sesión 022: corrector + Laya probado en `sttd`. Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
-| **Última actualización** | 2026-10-25 (Sesión 024) |
-| **Siguiente paso** | Dos vías abiertas y medidas: (1) **generación de candidatos similares** (vecinos fonéticos/ediciones del ASR + diccionario del usuario, V4) para el modo ya validado de `stt-correct.py` (léxico + contexto previo: 100 % precisión con gate p ≥ 0.7 — MODELOS §6.4.1); (2) **fine-tune** de laya-multilingual para la clase de confusos ES (hoy 15–21 % — §6.4/§7.6). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 025: publicado en GitHub (repo privado `Guitsmstr/stt-server`) + port macOS local con whisper-small conectado a `stt-tui` (D23). Sesión 024: lanzador `stt-serve-laya.sh` (un comando). Sesión 023: kroko-es + Laya como server para la Mac (OPERACION §7.6). Sesión 022: corrector + Laya probado en `sttd`. Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
+| **Última actualización** | 2026-10-25 (Sesión 025) |
+| **Siguiente paso** | Dos vías abiertas y medidas: (1) **generación de candidatos similares** (vecinos fonéticos/ediciones del ASR + diccionario del usuario, V4) para el modo ya validado de `stt-correct.py` (léxico + contexto previo: 100 % precisión con gate p ≥ 0.7 — MODELOS §6.4.1); (2) **fine-tune** de laya-multilingual para la clase de confusos ES (hoy 15–21 % — §6.4/§7.6). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide. El trabajo de GitHub quedó **hecho** en la Sesión 025 (repo privado `Guitsmstr/stt-server`); en local falta el permiso de micrófono (TCC) para la captura en vivo. |
 
 ## Estado de stages
 
@@ -172,6 +172,56 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 025 — 2026-10-25
+**Alcance**: petición del usuario — publicar el proyecto en GitHub e
+implementarlo en local (macOS) con **whisper-small**, conectado al cliente
+`stt-tui`.
+
+**Hechos (evidencia)**
+- **GitHub**: repo privado [`Guitsmstr/stt-server`](https://github.com/Guitsmstr/stt-server),
+  rama `main`, historia completa (30 commits) exportada desde el chroot. El
+  trabajo de GitHub, antes congelado por decisión del usuario, queda **hecho**.
+- **D23 — port macOS**: `scripts/fetch-sherpa.sh` detecta Darwin y desempaqueta
+  el static-lib release pineado de k2-fsa v1.13.8 (osx-arm64, sha256
+  `9091bf16…`, incluye `libonnxruntime.a`) + `c-api.h` pineado (`2a1b9508…`),
+  sin compilar; idempotencia verificada (2.ª ejecución = `cached`).
+  `adapters/whisper/Makefile` con sets de link por plataforma
+  (piper/espeak/ucd + frameworks Foundation/CoreFoundation).
+- **`scripts/stt-mic-local.sh` (nuevo)**: contraparte de escritorio de
+  `scripts/stt-mic.sh` — captura vía ffmpeg (avfoundation/ALSA) o `--wav FILE`
+  reenviado en tiempo real, con los mismos presets `--engine`. `stt-serve.sh`
+  funciona tal cual en macOS (wakelock best-effort).
+- **whisper-small local verificado** (Apple M4): `tests/assets/beckett.wav`
+  (9.96 s) → 6 `final` correctos («ever tried. ever failed. No matter. Try
+  again. Fail again. fell better.»), **RTF 0.23–0.34** (3–4× tiempo real),
+  carga del modelo ~0.5 s, RSS ~975 MB (int8).
+- **`sttd` + `stt-tui` conectados**: `./scripts/stt-serve.sh --listen
+  127.0.0.1:4720 --pipeline 'scripts/stt-mic-local.sh --engine whisper'` →
+  `stt-tui --probe` = `health: ok · stt-remote/1` + `hello`, token
+  auto-descubierto de `var/etc/stt-token`. `sttd` relanza el pipeline tras cada
+  EOF (sesiones continuas). Puerto 4720 porque el `adb forward` del teléfono
+  mantiene ocupado el 4719.
+- **Checks locales (macOS)**: `go test ./...` en core 5/5 OK · smoke Stage 1
+  (S1.2/S1.2b/S1.4) ALL OK · `sox` instalado (requisito de los tests).
+- **Pendiente**: permiso de micrófono (TCC) para captura en vivo en macOS —
+  `ffmpeg -f avfoundation -list_devices` hoy solo ve el dispositivo virtual;
+  documentado en README §Desarrollo local.
+
+**Archivos tocados**: `scripts/fetch-sherpa.sh`, `scripts/stt-mic-local.sh`
+(nuevo), `adapters/whisper/Makefile`, `README.md`, `docs/ARQUITECTURA.md`,
+`PROGRESO.md`.
+
+**Checks**: G1 ✅ (build limpio Go + adaptador C++), G2 ✅ (evidencia arriba),
+G3 ✅ (docs sincronizadas), G4 ✅ (este documento), G5 ✅ (sin regresiones:
+tests Go + smoke Stage 1), G6 ✅ (artefactos solo en `var/`, binarios
+gitignored).
+
+**Decisiones nuevas**: D23 (port macOS con libs prebuilt pineados).
+
+**Siguiente paso**: captura en vivo con el micrófono de la Mac una vez concedido
+el permiso TCC; en el device, `scripts/stt-mic.sh --engine whisper` queda
+disponible para evaluaciones de precisión offline.
 
 ### Sesión 024 — 2026-10-25
 **Alcance**: petición del usuario — **detener** el servidor/juez en marcha y

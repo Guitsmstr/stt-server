@@ -106,6 +106,45 @@ archivo. Segmentación por defecto: VAD activo, segmentos de hasta 5 s,
 `--vad-threshold`, `--partials` (solo si el adaptador declara la capability) y
 `--out tcp://host:port` / `--out unix:///ruta` para fan-out (CONTRATOS §3.1).
 
+## 💻 Desarrollo local (macOS) — whisper-small + stt-tui
+
+El mismo pipeline corre en una Mac: los scripts detectan la plataforma y en
+macOS `scripts/fetch-sherpa.sh` desempaqueta los libs estáticos prebuilt de
+k2-fsa para osx-arm64 (incluye `libonnxruntime.a`) en lugar de compilar.
+
+```sh
+make core                                   # núcleo Go (stt, sttd)
+sh scripts/fetch-sherpa.sh                  # sherpa-onnx v1.13.8 (prebuilt en macOS)
+make -C adapters/whisper                    # adaptador whisper (sherpa-onnx C API)
+sh scripts/fetch-model.sh --model whisper-small   # ~375 MB, sha256 pineado
+
+# micrófono del Mac…
+./scripts/stt-mic-local.sh --engine whisper
+# …o reenvío en tiempo real de un WAV (misma interfaz, sin micrófono)
+./scripts/stt-mic-local.sh --engine whisper --wav tests/assets/beckett.wav
+
+# servidor WebSocket stt-remote/1 (token en var/etc/stt-token)
+./scripts/stt-serve.sh --listen 127.0.0.1:4720 \
+    --pipeline 'scripts/stt-mic-local.sh --engine whisper'
+```
+
+Conectar el cliente [`stt-tui`](../stt_server_test) **desde este directorio**
+(así autodescubre `var/etc/stt-token`):
+
+```sh
+STT_NO_ADB=1 STT_WS_URL=ws://127.0.0.1:4720/v1/feed ../stt_server_test/stt-tui
+```
+
+- `STT_NO_ADB=1` impide que el cliente monte el `adb forward` del teléfono.
+- Whisper es offline (solo `final`, sin parciales). En `stt-tui`, el modo
+  `onlyTranscript final` (`Ctrl+T` dos veces) muestra el documento final
+  creciendo en vivo; `copy` lo pone en el portapapeles.
+- Micrófono en macOS: concede acceso a la terminal en Ajustes del Sistema →
+  Privacidad y Seguridad → Micrófono. `--device N` selecciona el dispositivo
+  (enumera con `ffmpeg -f avfoundation -list_devices true -i ""`).
+- `sttd` supervisa el pipeline de sesión: al terminar (EOF de un WAV) lo
+  relanza, así el feed siempre tiene sesiones.
+
 ## 🧭 Cómo continuar el proyecto en una nueva sesión
 
 1. Leer `PROGRESO.md` (stage actual + siguiente paso).
