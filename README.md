@@ -123,9 +123,11 @@ sh scripts/fetch-model.sh --model whisper-small   # ~375 MB, sha256 pineado
 # …o reenvío en tiempo real de un WAV (misma interfaz, sin micrófono)
 ./scripts/stt-mic-local.sh --engine whisper --wav tests/assets/beckett.wav
 
-# servidor WebSocket stt-remote/1 (token en var/etc/stt-token)
+# servidor WebSocket stt-remote/1 (token en var/etc/stt-token).
+# --engine whisper tras `--` solo fija el descriptor hello.session.engine:
+# el comando de sesión sigue siendo el --pipeline literal.
 ./scripts/stt-serve.sh --listen 127.0.0.1:4720 \
-    --pipeline 'scripts/stt-mic-local.sh --engine whisper'
+    --pipeline 'scripts/stt-mic-local.sh --engine whisper' -- --engine whisper
 ```
 
 Conectar el cliente [`stt-tui`](../stt_server_test) **desde este directorio**

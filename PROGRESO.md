@@ -197,7 +197,9 @@ implementarlo en local (macOS) con **whisper-small**, conectado al cliente
   again. Fail again. fell better.»), **RTF 0.23–0.34** (3–4× tiempo real),
   carga del modelo ~0.5 s, RSS ~975 MB (int8).
 - **`sttd` + `stt-tui` conectados**: `./scripts/stt-serve.sh --listen
-  127.0.0.1:4720 --pipeline 'scripts/stt-mic-local.sh --engine whisper'` →
+  127.0.0.1:4720 --pipeline 'scripts/stt-mic-local.sh --engine whisper' --
+  --engine whisper` (el `--engine` tras `--` fija el descriptor
+  `hello.session.engine`; el comando de sesión es el `--pipeline` literal) →
   `stt-tui --probe` = `health: ok · stt-remote/1` + `hello`, token
   auto-descubierto de `var/etc/stt-token`. `sttd` relanza el pipeline tras cada
   EOF (sesiones continuas). Puerto 4720 porque el `adb forward` del teléfono
