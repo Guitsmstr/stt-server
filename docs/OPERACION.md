@@ -311,6 +311,9 @@ cabecera `Authorization`, leer mensajes de texto y quedarse con los
 
 ### 7.6 Con el corrector Laya (kroko-es + juez, post-proceso)
 
+Todo lo de abajo está automatizado en **`scripts/stt-serve-laya.sh`** (arranca
+el juez si falta y lanza el servidor; `--dry-run`, `--engine`, `--listen`).
+
 El servidor puede llevar el **corrector estilo teclado** (`MODELOS.md` §6.4)
 como filtro dentro del comando de sesión: lo que llega al cliente ya viene
 corregido (o con las correcciones propuestas en modo dry-run). Requiere el juez

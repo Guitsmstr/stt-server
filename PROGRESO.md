@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 023: **kroko-es + Laya lanzado como server** para la Mac (OPERACION §7.6). Sesión 022: corrector + Laya probado en `sttd`. Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
-| **Última actualización** | 2026-10-25 (Sesión 023) |
+| **Stage actual** | **Stage 6 — ✅ cerrado (Sesión 016)**. Sesión 024: lanzador `stt-serve-laya.sh` (un comando). Sesión 023: kroko-es + Laya como server para la Mac (OPERACION §7.6). Sesión 022: corrector + Laya probado en `sttd`. Sesión 021: candidatos similares + contexto previo. Sesión 020: prototipo de corrector estilo teclado montado y validado (veredicto: no activable cero-shot para confusos ES) — [`docs/MODELOS.md`](docs/MODELOS.md) §6.4. Sesión 019: Laya (runtime + capacidad + juez ES) §6.3. Sesión 018: whisper-small + Qwen3-1.7B. |
+| **Última actualización** | 2026-10-25 (Sesión 024) |
 | **Siguiente paso** | Dos vías abiertas y medidas: (1) **generación de candidatos similares** (vecinos fonéticos/ediciones del ASR + diccionario del usuario, V4) para el modo ya validado de `stt-correct.py` (léxico + contexto previo: 100 % precisión con gate p ≥ 0.7 — MODELOS §6.4.1); (2) **fine-tune** de laya-multilingual para la clase de confusos ES (hoy 15–21 % — §6.4/§7.6). Abierta la validación con ~20–30 frases de dictado del usuario. Stage 7 sólo si el uso lo pide; el trabajo pendiente de GitHub sigue **congelado por decisión del usuario**. |
 
 ## Estado de stages
@@ -172,6 +172,28 @@ Específicos:
 ---
 
 ## Bitácora
+
+### Sesión 024 — 2026-10-25
+**Alcance**: petición del usuario — **detener** el servidor/juez en marcha y
+dejar escrito el comando de arranque con Laya.
+
+**Hechos (evidencia)**
+- Servicio detenido y verificado: `0` procesos (`sttd`/`stt-mic`/`stt-correct`/
+  `termux-capture`/`parec`/`pulseaudio`/`laya serve`) y `:8092` sin responder.
+- `scripts/stt-serve-laya.sh` (nuevo): **un solo comando** que arranca el juez
+  Laya (si no responde ya) y el servidor `sttd` con el corrector dentro de la
+  sesión (receta de `OPERACION.md` §7.6). Opciones: `--dry-run` (solo
+  propuestas), `--engine sherpa|sherpa-es`, `--listen`, `--judge-port`;
+  imprime el token (`--show-token`) y avisa del bind LAN (SEGURIDAD §7).
+  Verificado en vivo: arranque → `listening on ws://…:4719/v1/feed` + token;
+  después detenido.
+
+**Archivos tocados**: `scripts/stt-serve-laya.sh` (nuevo), `PROGRESO.md`.
+**Checks**: G1 ✅ (`sh -n` OK), G2 ✅ (smoke de arranque arriba), G4 ✅, G6 ✅
+(sin procesos residuales). G3 ⬜ (OPERACION §7.6 ya documenta la receta; el
+lanzador la automatiza sin cambiarla).
+**Siguiente paso**: usuario lanza `sh scripts/stt-serve-laya.sh` cuando quiera
+probar desde la Mac. Pendientes de Sesión 021 sin cambios.
 
 ### Sesión 023 — 2026-10-25
 **Alcance**: petición del usuario — lanzar **kroko-es con Laya como server**
